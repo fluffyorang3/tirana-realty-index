@@ -31,7 +31,7 @@ URL_TEMPLATE = BASE_URL + '/njoftime/imobiliare-vendbanime/apartamente/tirane/q-
 # Selenium headless Chrome options
 chrome_options = Options()
 # Use Chromium binary provided by GitHub Actions runner
-ochrome_options.binary_location = "/usr/bin/chromium-browser"
+chrome_options.binary_location = "/usr/bin/chromium-browser"
 chrome_options.add_argument('--headless')
 chrome_options.add_argument('--disable-gpu')
 chrome_options.add_argument('--no-sandbox')
