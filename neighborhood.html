@@ -1,0 +1,39 @@
+<!DOCTYPE html>
+<html>
+  <head>
+    <meta charset="utf-8" />
+    <title>Tirana Realty Index - Neighborhood</title>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+  </head>
+  <body>
+    <h1 id="title">Tirana Realty Index:</h1>
+    <canvas id="chart-nb"></canvas>
+    <p><a href="index.html">← Back to overall</a></p>
+
+    <script>
+      const params = new URLSearchParams(location.search);
+      const nb = params.get("nb");
+      document.getElementById(
+        "title"
+      ).textContent = `Tirana Realty Index: ${nb}`;
+      fetch("data/series_by_neighborhood.json")
+        .then((r) => r.json())
+        .then((obj) => {
+          const series = obj[nb] || [];
+          new Chart(document.getElementById("chart-nb"), {
+            type: "line",
+            data: {
+              labels: series.map((p) => p.date),
+              datasets: [
+                {
+                  label: "Avg €/m²",
+                  data: series.map((p) => p.value),
+                  tension: 0.3,
+                },
+              ],
+            },
+          });
+        });
+    </script>
+  </body>
+</html>
