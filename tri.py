@@ -1,11 +1,14 @@
 #!/usr/bin/env python3
 """
-Concurrent scraper for MerrJep real estate listings by neighborhood with live progress and JS rendering,
-processing two neighborhoods per session restart.
+Daily MerrJep scraper for real estate listings by neighborhood,
+processing two neighborhoods per session restart,
+and logging daily neighborhood indices by date.
 """
 
+import os
 import csv
 import time
+from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urljoin, quote, urlparse, urlunparse
 
@@ -15,16 +18,20 @@ from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from tqdm import tqdm
+import schedule
 
 # Constants
 BASE_URL = 'https://www.merrjep.al'
 CSV_INPUT = 'neighborhoods.csv'
 CSV_LISTINGS_OUTPUT = 'listings_data.csv'
-CSV_INDICES_OUTPUT = 'neighborhood_indices.csv'
+# Daily log file for neighborhood indices
+LOG_INDICES_FILE = 'neighborhood_indices_log.csv'
 URL_TEMPLATE = BASE_URL + '/njoftime/imobiliare-vendbanime/apartamente/tirane/q-{}'
 
 # Selenium headless Chrome options
 chrome_options = Options()
+# Use Chromium binary provided by GitHub Actions runner
+ochrome_options.binary_location = "/usr/bin/chromium-browser"
 chrome_options.add_argument('--headless')
 chrome_options.add_argument('--disable-gpu')
 chrome_options.add_argument('--no-sandbox')
@@ -99,8 +106,9 @@ def fetch_detail(args):
     raw_url = urljoin(BASE_URL, href)
     parsed = urlparse(raw_url)
     fixed_path = quote(parsed.path, safe='/')
-    detail_url = urlunparse((parsed.scheme, parsed.netloc, fixed_path,
-                             parsed.params, parsed.query, parsed.fragment))
+    detail_url = urlunparse((parsed.scheme, parsed.netloc,
+                             fixed_path, parsed.params,
+                             parsed.query, parsed.fragment))
     try:
         r = session.get(detail_url, timeout=10)
         r.raise_for_status()
@@ -142,7 +150,8 @@ def scrape_neighborhood(nb, total_bar):
     records = []
     with ThreadPoolExecutor(max_workers=8) as ex:
         futures = [ex.submit(fetch_detail, t) for t in tasks]
-        for fut in tqdm(as_completed(futures), total=len(futures), desc=f'Parsing {nb}', leave=False):
+        for fut in tqdm(as_completed(futures), total=len(futures),
+                        desc=f'Parsing {nb}', leave=False):
             rec = fut.result()
             if rec:
                 records.append(rec)
@@ -156,7 +165,7 @@ def chunks(lst, n):
         yield lst[i:i + n]
 
 
-def main():
+def run_scraper():
     # Load neighborhoods
     with open(CSV_INPUT) as f:
         nbs = [r[0] for r in csv.reader(f) if r]
@@ -164,32 +173,30 @@ def main():
     all_listings = []
 
     # Process in batches of 2
-    for idx, batch in enumerate(chunks(nbs, 2), start=1):
-        # Start new session and driver
+    for batch in chunks(nbs, 2):
+        # Restart session and driver
         global session, driver
         session = requests.Session()
         session.headers.update(HEADERS)
         driver = webdriver.Chrome(options=chrome_options)
 
-        total = tqdm(desc=f'Batch {idx} Total', unit='listing')
-        for nb in tqdm(batch, desc=f'Batch {idx} Neighborhoods'):
+        total = tqdm(desc='Batch Total', unit='listing')
+        for nb in tqdm(batch, desc='Neighborhoods Batch'):
             try:
                 all_listings += scrape_neighborhood(nb, total)
             except Exception as e:
                 tqdm.write(f"{nb} error: {e}")
         total.close()
-
-        # Close driver and session for this batch
         driver.quit()
 
-    # Data cleaning and saving
+    # Clean and save raw listings
     df = pd.DataFrame(all_listings).drop_duplicates()
     df = df[(df['area'] >= MIN_AREA) & (df['area'] <= MAX_AREA)]
     df = df[(df['price_per_m2'] >= MIN_PPSM) & (df['price_per_m2'] <= MAX_PPSM)]
     df.to_csv(CSV_LISTINGS_OUTPUT, index=False)
     print(f"Saved {len(df)} cleaned listings to {CSV_LISTINGS_OUTPUT}")
 
-    # Compute and save indices
+    # Compute indices
     inds = []
     for nb, grp in df.groupby('neighborhood'):
         sale = grp[grp['category'] == 'sale']
@@ -201,8 +208,21 @@ def main():
             'avg_rent_price_per_m2': rent['price_per_m2'].mean() if not rent.empty else None,
             'avg_rooms': grp['rooms'].mean()
         })
-    pd.DataFrame(inds).to_csv(CSV_INDICES_OUTPUT, index=False)
-    print(f"Saved indices to {CSV_INDICES_OUTPUT}")
+    inds_df = pd.DataFrame(inds)
+
+    # Log indices with date
+    today = datetime.now().strftime('%Y-%m-%d')
+    inds_df.insert(0, 'date', today)
+    if not os.path.exists(LOG_INDICES_FILE):
+        inds_df.to_csv(LOG_INDICES_FILE, index=False)
+    else:
+        inds_df.to_csv(LOG_INDICES_FILE, mode='a', header=False, index=False)
+    print(f"Logged indices for {today} to {LOG_INDICES_FILE}")
 
 if __name__ == '__main__':
-    main()
+    # Initial run, then schedule daily
+    run_scraper()
+    schedule.every().day.at('00:00').do(run_scraper)
+    while True:
+        schedule.run_pending()
+        time.sleep(60)
