@@ -22,7 +22,7 @@ GRAPH_OUT   = f'{HTML_DIR}/static/graphs'
 GRAPH_DIR    = 'docs/static/graphs'
 GRAPH_SIZE   = (5, 3)    # inches
 GRAPH_DPI    = 100       # dots per inch
-GRAPH_URL   = 'static/graphs'
+GRAPH_URL   = './static/graphs'
 # ────────────────────────────────────────────────────────────────────────────
 
 # ─── load history and parse dates ─────────────────────────────────────────
