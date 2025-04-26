@@ -2,9 +2,9 @@
 """
 generate_dashboard.py
 
-Reads historical_indices.csv, generates per-neighborhood and overall average graphs
-(with x-axis from earliest logged date to today), and writes a modern HTML
-dashboard with embedded charts.
+Reads historical_indices.csv, generates per‐neighborhood and overall average graphs
+(with x‐axis from earliest logged date to today), and writes a modern HTML
+dashboard (docs/index.html) with embedded charts.
 """
 
 import os
@@ -16,13 +16,13 @@ from matplotlib.ticker import FixedLocator
 
 # ─── CONFIG ────────────────────────────────────────────────────────────────
 HIST_FILE    = 'historical_indices.csv'
-HTML_DIR    = 'docs'
-OUTPUT_HTML = f'{HTML_DIR}/index.html'
-GRAPH_OUT   = f'{HTML_DIR}/static/graphs'
-GRAPH_DIR    = 'docs/static/graphs'
+HTML_DIR     = 'docs'
+OUTPUT_HTML  = os.path.join(HTML_DIR, 'index.html')
+GRAPH_OUT    = os.path.join(HTML_DIR, 'static', 'graphs')
 GRAPH_SIZE   = (5, 3)    # inches
 GRAPH_DPI    = 100       # dots per inch
-GRAPH_URL   = './static/graphs'
+# path used in <img src="…">, relative to index.html
+GRAPH_URL    = './static/graphs'
 # ────────────────────────────────────────────────────────────────────────────
 
 # ─── load history and parse dates ─────────────────────────────────────────
@@ -34,15 +34,15 @@ hist = hist.dropna(subset=['date'])
 TODAY        = pd.Timestamp(date.today())
 DISPLAY_DATE = TODAY.date().isoformat()
 
-# ─── clear out old graphs ─────────────────────────────────────────────────
-if os.path.isdir(GRAPH_DIR):
-    for fn in os.listdir(GRAPH_DIR):
-        if fn.lower().endswith('.png'):
-            os.remove(os.path.join(GRAPH_DIR, fn))
-else:
-    os.makedirs(GRAPH_DIR)
+# ─── prepare output dirs ──────────────────────────────────────────────────
+os.makedirs(GRAPH_OUT, exist_ok=True)
 
-# ─── per-neighborhood graphs ───────────────────────────────────────────────
+# clear out old graphs
+for fn in os.listdir(GRAPH_OUT):
+    if fn.lower().endswith('.png'):
+        os.remove(os.path.join(GRAPH_OUT, fn))
+
+# ─── per‐neighborhood graphs ───────────────────────────────────────────────
 for nb in hist['neighborhood'].unique():
     df_nb = (
         hist[hist['neighborhood'] == nb]
@@ -60,12 +60,12 @@ for nb in hist['neighborhood'].unique():
     ax.set_title(f'{nb} €/m² over time')
     ax.set_ylabel('€/m²')
 
-    # force axis from first logged date to today
+    # x‐axis from first data point to today
     ax.set_xlim(min_date, TODAY)
-    # locator: auto when >1 point, fixed at [min_date, TODAY] when only 1
     if len(series) > 1:
         locator = mdates.AutoDateLocator()
     else:
+        # single day: show both min_date and TODAY
         locator = FixedLocator([mdates.date2num(min_date), mdates.date2num(TODAY)])
     ax.xaxis.set_major_locator(locator)
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
@@ -83,9 +83,9 @@ overall = (
     .dropna()
     .sort_index()
 )
+
 if not overall.empty:
     min_date = overall.index.min()
-
     fig, ax = plt.subplots(figsize=GRAPH_SIZE, dpi=GRAPH_DPI)
     ax.plot(overall.index, overall.values, marker='o', linestyle='-')
     ax.set_title('Average €/m² across all neighborhoods')
@@ -104,10 +104,16 @@ if not overall.empty:
     fig.savefig(os.path.join(GRAPH_OUT, 'average.png'))
     plt.close(fig)
 
-# ─── pick the latest date we actually have ────────────────────────────────
+# ─── build the HTML ───────────────────────────────────────────────────────
+# pick the most recent date (today if present, else the last one in CSV)
 latest_date = TODAY if TODAY in hist['date'].values else hist['date'].max()
 
-# ─── build HTML ───────────────────────────────────────────────────────────
+# dedupe if there happen to be multiple rows per neighborhood
+today_df = (
+    hist[hist['date'] == latest_date]
+    .drop_duplicates(subset=['neighborhood'])
+)
+
 html_lines = [
     '<!doctype html>',
     '<html lang="en">',
@@ -131,7 +137,7 @@ html_lines = [
 ]
 
 # one card per neighborhood
-for _, row in hist[hist['date'] == latest_date].iterrows():
+for _, row in today_df.iterrows():
     nb      = row['neighborhood']
     price   = row['avg_sale_price_per_m2']
     safe_nb = nb.replace(' ', '_')
@@ -160,6 +166,8 @@ html_lines += [
     '</html>'
 ]
 
+# ensure docs folder exists and write out the dashboard
+os.makedirs(HTML_DIR, exist_ok=True)
 with open(OUTPUT_HTML, 'w') as f:
     f.write('\n'.join(html_lines))
 
