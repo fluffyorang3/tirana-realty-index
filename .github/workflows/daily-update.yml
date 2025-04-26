@@ -45,6 +45,6 @@ jobs:
           commit_message: "chore: daily dashboard update"
           branch: deployment
           file_pattern: |
-            docs/dashboard.html
+            docs/index.html
             docs/static/graphs/*.png
             historical_indices.csv
