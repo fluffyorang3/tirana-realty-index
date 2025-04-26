@@ -16,6 +16,7 @@ from urllib.parse import urljoin, quote, urlparse, urlunparse
 
 import requests
 from requests.adapters import HTTPAdapter, Retry
+from requests.utils import requote_uri
 import pandas as pd
 from bs4 import BeautifulSoup
 from selenium import webdriver
@@ -127,9 +128,7 @@ def parse_listing_detail(soup):
 def fetch_detail(args):
     href, neighborhood = args
     raw_url = urljoin(BASE_URL, href)
-    parsed = urlparse(raw_url)
-    fixed_path = quote(parsed.path, safe='/')
-    detail_url = urlunparse((parsed.scheme, parsed.netloc, fixed_path, parsed.params, parsed.query, parsed.fragment))
+    detail_url = requote_uri(raw_url)
     limiter.wait()
     try:
         r = session.get(detail_url, headers=new_headers(), timeout=10)
