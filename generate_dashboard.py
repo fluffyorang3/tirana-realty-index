@@ -16,8 +16,8 @@ from matplotlib.ticker import FixedLocator
 
 # ─── CONFIG ────────────────────────────────────────────────────────────────
 HIST_FILE    = 'historical_indices.csv'
-OUTPUT_HTML  = 'dashboard.html'
-GRAPH_DIR    = 'static/graphs'
+OUTPUT_HTML  = 'docs/dashboard.html'
+GRAPH_DIR    = 'docs/static/graphs'
 GRAPH_SIZE   = (5, 3)    # inches
 GRAPH_DPI    = 100       # dots per inch
 # ────────────────────────────────────────────────────────────────────────────
