@@ -20,18 +20,20 @@ HIST_FILE   = 'historical_indices.csv'
 HTML_DIR    = 'docs'
 OUTPUT_HTML = os.path.join(HTML_DIR, 'index.html')
 GRAPH_OUT   = os.path.join(HTML_DIR, 'static', 'graphs')
-GRAPH_URL   = './static/graphs'      # what <img src=""> will use, relative to index.html
+GRAPH_URL   = './static/graphs'      # <img src="…"> path, relative to index.html
 GRAPH_SIZE  = (5, 3)                 # inches
 GRAPH_DPI   = 100
 # ────────────────────────────────────────────────────────────────────────────
 
 # 1) Load & dedupe
 hist = pd.read_csv(HIST_FILE, parse_dates=['date'])
-hist = hist.sort_values('date') \
-           .drop_duplicates(subset=['date','neighborhood'], keep='last')
+hist = (
+    hist.sort_values('date')
+        .drop_duplicates(subset=['date', 'neighborhood'], keep='last')
+)
 
 # 2) Prepare dates
-TODAY        = pd.Timestamp(date.today())
+TODAY = pd.Timestamp(date.today())
 DISPLAY_DATE = TODAY.date().isoformat()
 
 # 3) Ensure output folder & clear old PNGs
@@ -47,18 +49,22 @@ for neighborhood, grp in hist.groupby('neighborhood'):
     if series.empty:
         continue
 
-    min_date = series.index.min()
+    min_date = series.index.min().to_pydatetime()  # convert to datetime
+    today_dt = TODAY.to_pydatetime()
+
     fig, ax = plt.subplots(figsize=GRAPH_SIZE, dpi=GRAPH_DPI)
-    ax.plot(series.index, series.values, marker='o', linestyle='-')
+    ax.plot(series.index.to_pydatetime(), series.values, marker='o', linestyle='-')
     ax.set_title(f'{neighborhood} €/m² over time')
     ax.set_ylabel('€/m²')
 
-    # lock x-axis from first data → today
-    ax.set_xlim(min_date, TODAY)
+    ax.set_xlim(min_date, today_dt)
     if len(series) > 1:
         locator = mdates.AutoDateLocator()
     else:
-        locator = FixedLocator([mdates.date2num(min_date), mdates.date2num(TODAY)])
+        locator = FixedLocator([
+            mdates.date2num(min_date),
+            mdates.date2num(today_dt)
+        ])
     ax.xaxis.set_major_locator(locator)
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
     fig.autofmt_xdate()
@@ -71,22 +77,27 @@ for neighborhood, grp in hist.groupby('neighborhood'):
 # 5) Overall average graph
 overall = (
     hist.groupby('date')['avg_sale_price_per_m2']
-    .mean()
-    .dropna()
-    .sort_index()
+        .mean()
+        .dropna()
+        .sort_index()
 )
 if not overall.empty:
-    min_date = overall.index.min()
+    min_date = overall.index.min().to_pydatetime()
+    today_dt = TODAY.to_pydatetime()
+
     fig, ax = plt.subplots(figsize=GRAPH_SIZE, dpi=GRAPH_DPI)
-    ax.plot(overall.index, overall.values, marker='o', linestyle='-')
+    ax.plot(overall.index.to_pydatetime(), overall.values, marker='o', linestyle='-')
     ax.set_title('Average €/m² across all neighborhoods')
     ax.set_ylabel('€/m²')
 
-    ax.set_xlim(min_date, TODAY)
+    ax.set_xlim(min_date, today_dt)
     if len(overall) > 1:
         locator = mdates.AutoDateLocator()
     else:
-        locator = FixedLocator([mdates.date2num(min_date), mdates.date2num(TODAY)])
+        locator = FixedLocator([
+            mdates.date2num(min_date),
+            mdates.date2num(today_dt)
+        ])
     ax.xaxis.set_major_locator(locator)
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
     fig.autofmt_xdate()
@@ -95,14 +106,14 @@ if not overall.empty:
     fig.savefig(os.path.join(GRAPH_OUT, 'average.png'))
     plt.close(fig)
 
-# 6) Build HTML
+# 6) Build the HTML
 latest = TODAY if TODAY in hist['date'].values else hist['date'].max()
 today_df = (
     hist[hist['date'] == latest]
-    .drop_duplicates(subset=['neighborhood'])
+        .drop_duplicates(subset=['neighborhood'])
 )
 
-html = [
+html_lines = [
     '<!doctype html>',
     '<html lang="en">',
     '<head>',
@@ -124,12 +135,11 @@ html = [
     '  <div class="grid">'
 ]
 
-# neighborhood cards
 for _, row in today_df.iterrows():
     nb      = row['neighborhood']
     price   = row['avg_sale_price_per_m2']
     safe    = nb.replace(' ', '_')
-    html += [
+    html_lines += [
         '    <div class="card">',
         f'      <h2>{nb}</h2>',
         f'      <p><strong>{price:.2f} €/m²</strong></p>',
@@ -140,7 +150,7 @@ for _, row in today_df.iterrows():
 # overall card
 if latest in overall.index:
     avg = overall.loc[latest]
-    html += [
+    html_lines += [
         '    <div class="card">',
         '      <h2>Overall Average</h2>',
         f'      <p><strong>{avg:.2f} €/m²</strong></p>',
@@ -148,8 +158,7 @@ if latest in overall.index:
         '    </div>'
     ]
 
-# close tags
-html += [
+html_lines += [
     '  </div>',
     '</body>',
     '</html>'
@@ -157,6 +166,6 @@ html += [
 
 os.makedirs(HTML_DIR, exist_ok=True)
 with open(OUTPUT_HTML, 'w') as f:
-    f.write('\n'.join(html))
+    f.write('\n'.join(html_lines))
 
 print(f"Dashboard updated: {OUTPUT_HTML}")
