@@ -73,7 +73,7 @@ for nb in hist['neighborhood'].unique():
 
     fig.tight_layout()
     safe_nb = nb.replace(' ', '_')
-    fig.savefig(os.path.join(GRAPH_DIR, f'{safe_nb}.png'))
+    fig.savefig(os.path.join(GRAPH_OUT, f'{safe_nb}.png'))
     plt.close(fig)
 
 # ─── overall average graph ────────────────────────────────────────────────
@@ -101,7 +101,7 @@ if not overall.empty:
     fig.autofmt_xdate()
 
     fig.tight_layout()
-    fig.savefig(os.path.join(GRAPH_DIR, 'average.png'))
+    fig.savefig(os.path.join(GRAPH_OUT, 'average.png'))
     plt.close(fig)
 
 # ─── pick the latest date we actually have ────────────────────────────────
@@ -139,7 +139,7 @@ for _, row in hist[hist['date'] == latest_date].iterrows():
         '    <div class="card">',
         f'      <h2>{nb}</h2>',
         f'      <p><strong>{price:.2f} €/m²</strong></p>',
-        f'      <img src="{GRAPH_DIR}/{safe_nb}.png" alt="{nb} price chart">',
+        f'      <img src="{GRAPH_URL}/{safe_nb}.png" alt="{nb} price chart">',
         '    </div>'
     ]
 
@@ -150,7 +150,7 @@ if latest_date in overall.index:
         '    <div class="card">',
         '      <h2>Overall Average</h2>',
         f'      <p><strong>{latest_avg:.2f} €/m²</strong></p>',
-        f'      <img src="{GRAPH_DIR}/average.png" alt="Overall price chart">',
+        f'      <img src="{GRAPH_URL}/average.png" alt="Overall price chart">',
         '    </div>'
     ]
 
