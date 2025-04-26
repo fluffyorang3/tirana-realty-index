@@ -1,14 +1,16 @@
+# scraper.py
 #!/usr/bin/env python3
 """
 Concurrent scraper for MerrJep real estate listings by neighborhood with live progress and JS rendering,
 with fallback link detection and data cleaning.
 
-Updated to process 2 neighborhoods at a time, restarting both the Selenium session and HTTP session
-after every 2 neighborhoods.
+Appends daily neighborhood indices to historical_indices.csv.
 """
 
+import os
 import csv
 import time
+from datetime import date
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urljoin, quote, urlparse, urlunparse
 
@@ -23,7 +25,7 @@ from tqdm import tqdm
 BASE_URL = 'https://www.merrjep.al'
 CSV_INPUT = 'neighborhoods.csv'
 CSV_LISTINGS_OUTPUT = 'listings_data.csv'
-CSV_INDICES_OUTPUT = 'neighborhood_indices.csv'
+HIST_FILE = 'historical_indices.csv'
 URL_TEMPLATE = BASE_URL + '/njoftime/imobiliare-vendbanime/apartamente/tirane/q-{}'
 
 HEADERS = {
@@ -40,11 +42,11 @@ MAX_AREA = 500    # m²
 MIN_PPSM = 200    # €/m²
 MAX_PPSM = 5000   # €/m²
 
-# Globals that will be re-created every chunk
+# Globals for session and driver
 session = None
 driver = None
 
-# Pre-define Chrome options once
+# Selenium options
 chrome_options = Options()
 chrome_options.add_argument('--headless')
 chrome_options.add_argument('--disable-gpu')
@@ -63,13 +65,11 @@ def extract_price(el):
 
 
 def parse_listing_detail(soup):
-    # Price
     price = None
     el = soup.select_one('bdi.new-price span.format-money-int')
     if el:
         price = extract_price(el)
 
-    # Category
     category = 'sale'
     for tag in soup.select('a.tag-item'):
         txt = tag.get_text(strip=True).lower()
@@ -80,7 +80,6 @@ def parse_listing_detail(soup):
             category = 'sale'
             break
 
-    # Rooms & Area
     rooms = None
     area = None
     for tag in soup.select('a.tag-item, .tag-item'):
@@ -105,11 +104,8 @@ def parse_listing_detail(soup):
 
 
 def fetch_detail(args):
-    """Fetch and parse a detail page given (href, neighborhood). Uses global session."""
     href, neighborhood = args
     raw_url = urljoin(BASE_URL, href)
-
-    # Properly encode path segments (especially '+')
     parsed = urlparse(raw_url)
     fixed_path = quote(parsed.path, safe='/')
     detail_url = urlunparse((
@@ -141,7 +137,6 @@ def fetch_detail(args):
 
 
 def scrape_neighborhood(nb, total_bar):
-    """Scrape all listings for one neighborhood using global driver and session."""
     slug = sanitize(nb)
     url = URL_TEMPLATE.format(slug)
     tqdm.write(f"\n[{nb}] loading → {url}")
@@ -150,7 +145,6 @@ def scrape_neighborhood(nb, total_bar):
     time.sleep(2)
     soup = BeautifulSoup(driver.page_source, 'html.parser')
 
-    # Primary link detection
     anchors = soup.select('a.Link_vis')
     if not anchors:
         conts = soup.select('li.announcement-item')
@@ -186,32 +180,27 @@ def main():
     all_records = []
     total = tqdm(desc='Total listings', unit='listing')
 
-    # Process in chunks of 2 neighborhoods, restarting session & driver each time
+    # Process in chunks of 2
     for i in range(0, len(neighborhoods), 2):
         chunk = neighborhoods[i:i + 2]
 
-        # New HTTP session
         session = requests.Session()
         session.headers.update(HEADERS)
-
-        # New Selenium driver
         driver = webdriver.Chrome(options=chrome_options)
 
-        # Scrape this chunk
         for nb in tqdm(chunk, desc=f'Neighborhoods {i+1}-{i+len(chunk)}'):
             try:
                 all_records += scrape_neighborhood(nb, total)
             except Exception as e:
                 tqdm.write(f"{nb} error: {e}")
 
-        # Tear down this session
         driver.quit()
         driver = None
         session = None
 
     total.close()
 
-    # Build DataFrame and clean data
+    # Build and clean DataFrame
     df = pd.DataFrame(all_records)
     df = df.drop_duplicates()
     df = df[(df['area'] >= MIN_AREA) & (df['area'] <= MAX_AREA)]
@@ -233,9 +222,20 @@ def main():
             'avg_rooms': grp['rooms'].mean()
         })
 
-    pd.DataFrame(indices).to_csv(CSV_INDICES_OUTPUT, index=False)
-    print(f"Saved indices to {CSV_INDICES_OUTPUT}")
+    # Append to historical CSV
+    indices_df = pd.DataFrame(indices)
+    indices_df['date'] = date.today()
+
+    if os.path.exists(HIST_FILE):
+        hist = pd.read_csv(HIST_FILE, parse_dates=['date'])
+        hist = pd.concat([hist, indices_df], ignore_index=True)
+    else:
+        hist = indices_df.copy()
+
+    hist.to_csv(HIST_FILE, index=False)
+    print(f"Appended today's indices to {HIST_FILE}")
 
 
 if __name__ == '__main__':
     main()
+
