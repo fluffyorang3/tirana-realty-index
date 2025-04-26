@@ -1,40 +1,46 @@
-name: Daily Real-Estate Dashboard
+name: 🔄 Daily Dashboard Update
 
 on:
+  push:
+    branches:
+      - deployment
   schedule:
-    - cron: '0 1 * * *'   # 01:00 UTC ≈ 03:00 CET
+    - cron: '0 1 * * *'  # runs at 01:00 UTC ≈ 03:00 Tirana each day
 
 jobs:
-  build:
+  update-dashboard:
     runs-on: ubuntu-latest
 
     steps:
-    - uses: actions/checkout@v3
+      - name: Checkout deployment branch
+        uses: actions/checkout@v3
+        with:
+          ref: deployment
 
-    - name: Set up Python
-      uses: actions/setup-python@v4
-      with: python-version: '3.x'
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.x'
 
-    - name: Install system dependencies
-      run: |
-        sudo apt-get update
-        sudo apt-get install -y chromium-browser chromium-chromedriver
-    - name: Install Python deps
-      run: |
-        python -m pip install --upgrade pip
-        pip install -r requirements.txt
+      - name: Install system dependencies & Python libs
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser chromium-chromedriver
+          python -m pip install --upgrade pip
+          pip install -r requirements.txt
 
-    - name: Run Scraper
-      run: python scraper.py
+      - name: Run scraper
+        run: python scraper.py
 
-    - name: Generate Dashboard
-      run: python generate_dashboard.py
+      - name: Generate dashboard
+        run: python generate_dashboard.py
 
-    - name: Commit & Push changes
-      uses: stefanzweifel/git-auto-commit-action@v4
-      with:
-        commit_message: 'chore(dashboard): daily update'
-        file_pattern: |
-          docs/dashboard.html
-          docs/static/graphs/*.png
-          historical_indices.csv
+      - name: Commit updated dashboard & data
+        uses: stefanzweifel/git-auto-commit-action@v4
+        with:
+          commit_message: chore: daily dashboard update
+          branch: deployment
+          file_pattern: |
+            docs/dashboard.html
+            docs/static/graphs/*.png
+            historical_indices.csv
