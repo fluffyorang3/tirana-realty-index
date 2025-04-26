@@ -3,29 +3,31 @@
 generate_dashboard.py
 
 Reads historical_indices.csv, generates per-neighborhood and overall average graphs
-(with x-axis limited to each series’ own date range), and writes a modern HTML
+(with x-axis from earliest date to today), and writes a modern HTML
 dashboard with embedded charts.
 """
 
 import os
+from datetime import date
 import pandas as pd
 import matplotlib.pyplot as plt
-from datetime import date
 
 # ─── CONFIG ────────────────────────────────────────────────────────────────
 HIST_FILE    = 'historical_indices.csv'
 OUTPUT_HTML  = 'dashboard.html'
 GRAPH_DIR    = 'static/graphs'
 GRAPH_SIZE   = (5, 3)    # inches
-GRAPH_DPI    = 100       # dots per inch
+GRAPH_DPI    = 100       # dpi
 # ────────────────────────────────────────────────────────────────────────────
 
 # ─── load history and parse dates ─────────────────────────────────────────
 hist = pd.read_csv(HIST_FILE)
-# force-parse the date column (format YYYY-MM-DD)
 hist['date'] = pd.to_datetime(hist['date'], format='%Y-%m-%d', errors='coerce')
-# drop any bad parses
 hist = hist.dropna(subset=['date'])
+
+# fixed “today” timestamp for axis limits + display
+TODAY = pd.Timestamp(date.today())
+DISPLAY_DATE = TODAY.date().isoformat()
 
 # ─── ensure graph output directory exists ──────────────────────────────────
 os.makedirs(GRAPH_DIR, exist_ok=True)
@@ -46,7 +48,8 @@ for nb in hist['neighborhood'].unique():
     plt.title(f'{nb} €/m² over time')
     plt.ylabel('€/m²')
     plt.tight_layout()
-    plt.xlim(series.index.min(), series.index.max())
+    # x-axis: from first logged date to today
+    plt.xlim(series.index.min(), TODAY)
 
     safe_nb = nb.replace(' ', '_')
     plt.savefig(os.path.join(GRAPH_DIR, f'{safe_nb}.png'))
@@ -66,13 +69,10 @@ if not overall.empty:
     plt.title('Average €/m² across all neighborhoods')
     plt.ylabel('€/m²')
     plt.tight_layout()
-    plt.xlim(overall.index.min(), overall.index.max())
+    # x-axis: from first overall date to today
+    plt.xlim(overall.index.min(), TODAY)
     plt.savefig(os.path.join(GRAPH_DIR, 'average.png'))
     plt.close()
-
-# ─── pick the most recent date we actually have ───────────────────────────
-latest_date = hist['date'].max()
-display_date = latest_date.date().isoformat()
 
 # ─── build HTML ───────────────────────────────────────────────────────────
 html_lines = [
@@ -93,11 +93,12 @@ html_lines = [
     '  </style>',
     '</head>',
     '<body>',
-    f'  <h1>Prices on {display_date}</h1>',
+    f'  <h1>Prices on {DISPLAY_DATE}</h1>',
     '  <div class="grid">'
 ]
 
-# one card per neighborhood
+# one card per neighborhood for the latest date we actually have (which is TODAY if you scraped today)
+latest_date = TODAY if TODAY in hist['date'].values else hist['date'].max()
 for _, row in hist[hist['date'] == latest_date].iterrows():
     nb      = row['neighborhood']
     price   = row['avg_sale_price_per_m2']
@@ -110,8 +111,8 @@ for _, row in hist[hist['date'] == latest_date].iterrows():
         '    </div>'
     ]
 
-# overall average card (if available for that date)
-if (not overall.empty) and (latest_date in overall.index):
+# overall average card
+if latest_date in overall.index:
     latest_avg = overall.loc[latest_date]
     html_lines += [
         '    <div class="card">',
@@ -121,14 +122,12 @@ if (not overall.empty) and (latest_date in overall.index):
         '    </div>'
     ]
 
-# close grid & body
 html_lines += [
     '  </div>',
     '</body>',
     '</html>'
 ]
 
-# ─── write out the dashboard ────────────────────────────────────────────────
 with open(OUTPUT_HTML, 'w') as f:
     f.write('\n'.join(html_lines))
 
