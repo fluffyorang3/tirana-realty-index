@@ -1,14 +1,18 @@
 name: Daily Tirana Realty Index
 
+concurrency:
+  group: tirana-realty-index-daily
+  cancel-in-progress: false
+
 on:
   schedule:
     - cron: "0 0 * * *" # every day at 00:00 UTC
   workflow_dispatch:
 
 jobs:
-  build:
+  scrape:
     runs-on: ubuntu-latest
-
+    timeout-minutes: 60
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
@@ -20,11 +24,35 @@ jobs:
 
       - name: Install dependencies
         run: |
+          sudo apt-get update
+          sudo apt-get install -y chromium-browser chromium-chromedriver
           pip install -r requirements.txt
-          sudo apt-get update && sudo apt-get install -y chromium-driver
 
       - name: Run scraper
         run: python tri.py
+
+      - name: Commit CSV
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add neighborhood_indices_log.csv
+          git commit -m "chore: daily CSV $(date -u +'%Y-%m-%d')" || echo "No changes"
+          git push
+
+  convert_and_deploy:
+    needs: scrape
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Set up Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: "3.10"
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
 
       - name: Convert CSV to JSON
         run: python convert_indices.py
@@ -33,8 +61,8 @@ jobs:
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add neighborhood_indices_log.csv data/*.json index.html neighborhood.html
-          git commit -m "chore: daily update for $(date -u +'%Y-%m-%d')" || echo "No changes"
+          git add data/*.json index.html neighborhood.html
+          git commit -m "chore: deploy pages $(date -u +'%Y-%m-%d')" || echo "No changes"
           git push
 
       - name: Deploy to GitHub Pages
