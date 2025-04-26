@@ -1,5 +1,8 @@
 name: 🔄 Daily Dashboard Update
 
+permissions:
+  contents: write
+
 on:
   push:
     branches:
@@ -16,6 +19,7 @@ jobs:
         uses: actions/checkout@v3
         with:
           ref: deployment
+          persist-credentials: true
 
       - name: Set up Python
         uses: actions/setup-python@v4
