@@ -3,7 +3,7 @@
 generate_dashboard.py
 
 Reads historical_indices.csv, generates per-neighborhood and overall average graphs
-(with x-axis from earliest date to today), and writes a modern HTML
+(with x-axis from earliest logged date to today), and writes a modern HTML
 dashboard with embedded charts.
 """
 
@@ -11,13 +11,15 @@ import os
 from datetime import date
 import pandas as pd
 import matplotlib.pyplot as plt
+import matplotlib.dates as mdates
+from matplotlib.ticker import FixedLocator
 
 # ─── CONFIG ────────────────────────────────────────────────────────────────
 HIST_FILE    = 'historical_indices.csv'
 OUTPUT_HTML  = 'dashboard.html'
 GRAPH_DIR    = 'static/graphs'
 GRAPH_SIZE   = (5, 3)    # inches
-GRAPH_DPI    = 100       # dpi
+GRAPH_DPI    = 100       # dots per inch
 # ────────────────────────────────────────────────────────────────────────────
 
 # ─── load history and parse dates ─────────────────────────────────────────
@@ -26,11 +28,16 @@ hist['date'] = pd.to_datetime(hist['date'], format='%Y-%m-%d', errors='coerce')
 hist = hist.dropna(subset=['date'])
 
 # fixed “today” timestamp for axis limits + display
-TODAY = pd.Timestamp(date.today())
+TODAY        = pd.Timestamp(date.today())
 DISPLAY_DATE = TODAY.date().isoformat()
 
-# ─── ensure graph output directory exists ──────────────────────────────────
-os.makedirs(GRAPH_DIR, exist_ok=True)
+# ─── clear out old graphs ─────────────────────────────────────────────────
+if os.path.isdir(GRAPH_DIR):
+    for fn in os.listdir(GRAPH_DIR):
+        if fn.lower().endswith('.png'):
+            os.remove(os.path.join(GRAPH_DIR, fn))
+else:
+    os.makedirs(GRAPH_DIR)
 
 # ─── per-neighborhood graphs ───────────────────────────────────────────────
 for nb in hist['neighborhood'].unique():
@@ -43,17 +50,28 @@ for nb in hist['neighborhood'].unique():
     if series.empty:
         continue
 
-    plt.figure(figsize=GRAPH_SIZE, dpi=GRAPH_DPI)
-    series.plot(marker='o', linestyle='-')
-    plt.title(f'{nb} €/m² over time')
-    plt.ylabel('€/m²')
-    plt.tight_layout()
-    # x-axis: from first logged date to today
-    plt.xlim(series.index.min(), TODAY)
+    min_date = series.index.min()
 
+    fig, ax = plt.subplots(figsize=GRAPH_SIZE, dpi=GRAPH_DPI)
+    ax.plot(series.index, series.values, marker='o', linestyle='-')
+    ax.set_title(f'{nb} €/m² over time')
+    ax.set_ylabel('€/m²')
+
+    # force axis from first logged date to today
+    ax.set_xlim(min_date, TODAY)
+    # locator: auto when >1 point, fixed at [min_date, TODAY] when only 1
+    if len(series) > 1:
+        locator = mdates.AutoDateLocator()
+    else:
+        locator = FixedLocator([mdates.date2num(min_date), mdates.date2num(TODAY)])
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+    fig.autofmt_xdate()
+
+    fig.tight_layout()
     safe_nb = nb.replace(' ', '_')
-    plt.savefig(os.path.join(GRAPH_DIR, f'{safe_nb}.png'))
-    plt.close()
+    fig.savefig(os.path.join(GRAPH_DIR, f'{safe_nb}.png'))
+    plt.close(fig)
 
 # ─── overall average graph ────────────────────────────────────────────────
 overall = (
@@ -62,17 +80,29 @@ overall = (
     .dropna()
     .sort_index()
 )
-
 if not overall.empty:
-    plt.figure(figsize=GRAPH_SIZE, dpi=GRAPH_DPI)
-    overall.plot(marker='o', linestyle='-')
-    plt.title('Average €/m² across all neighborhoods')
-    plt.ylabel('€/m²')
-    plt.tight_layout()
-    # x-axis: from first overall date to today
-    plt.xlim(overall.index.min(), TODAY)
-    plt.savefig(os.path.join(GRAPH_DIR, 'average.png'))
-    plt.close()
+    min_date = overall.index.min()
+
+    fig, ax = plt.subplots(figsize=GRAPH_SIZE, dpi=GRAPH_DPI)
+    ax.plot(overall.index, overall.values, marker='o', linestyle='-')
+    ax.set_title('Average €/m² across all neighborhoods')
+    ax.set_ylabel('€/m²')
+
+    ax.set_xlim(min_date, TODAY)
+    if len(overall) > 1:
+        locator = mdates.AutoDateLocator()
+    else:
+        locator = FixedLocator([mdates.date2num(min_date), mdates.date2num(TODAY)])
+    ax.xaxis.set_major_locator(locator)
+    ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
+    fig.autofmt_xdate()
+
+    fig.tight_layout()
+    fig.savefig(os.path.join(GRAPH_DIR, 'average.png'))
+    plt.close(fig)
+
+# ─── pick the latest date we actually have ────────────────────────────────
+latest_date = TODAY if TODAY in hist['date'].values else hist['date'].max()
 
 # ─── build HTML ───────────────────────────────────────────────────────────
 html_lines = [
@@ -97,8 +127,7 @@ html_lines = [
     '  <div class="grid">'
 ]
 
-# one card per neighborhood for the latest date we actually have (which is TODAY if you scraped today)
-latest_date = TODAY if TODAY in hist['date'].values else hist['date'].max()
+# one card per neighborhood
 for _, row in hist[hist['date'] == latest_date].iterrows():
     nb      = row['neighborhood']
     price   = row['avg_sale_price_per_m2']
