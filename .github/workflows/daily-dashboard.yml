@@ -1,28 +1,30 @@
 name: Daily Tirana Realty Index
 
+# allow overlapping runs so long scrapes aren’t canceled
 concurrency:
   group: tirana-realty-index-daily
   cancel-in-progress: false
 
 on:
   schedule:
-    - cron: "0 0 * * *" # every day at 00:00 UTC
+    - cron: "0 0 * * *" # daily at 00:00 UTC
   workflow_dispatch:
 
 jobs:
   scrape:
+    name: Scrape & Log CSV
     runs-on: ubuntu-latest
     timeout-minutes: 60
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Python
+      - name: Set up Python 3.10
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
 
-      - name: Install dependencies
+      - name: Install system dependencies & Python libs
         run: |
           sudo apt-get update
           sudo apt-get install -y chromium-browser chromium-chromedriver
@@ -40,24 +42,25 @@ jobs:
           git push
 
   convert_and_deploy:
+    name: Convert → JSON → Deploy
     needs: scrape
     runs-on: ubuntu-latest
     steps:
       - name: Checkout code
         uses: actions/checkout@v3
 
-      - name: Set up Python
+      - name: Set up Python 3.10
         uses: actions/setup-python@v4
         with:
           python-version: "3.10"
 
-      - name: Install dependencies
+      - name: Install Python libs
         run: pip install -r requirements.txt
 
       - name: Convert CSV to JSON
         run: python convert_indices.py
 
-      - name: Commit data and pages
+      - name: Commit JSON & Pages
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -65,7 +68,7 @@ jobs:
           git commit -m "chore: deploy pages $(date -u +'%Y-%m-%d')" || echo "No changes"
           git push
 
-      - name: Deploy to GitHub Pages
+      - name: Publish to GitHub Pages
         uses: peaceiris/actions-gh-pages@v3
         with:
           github_token: ${{ secrets.GITHUB_TOKEN }}
