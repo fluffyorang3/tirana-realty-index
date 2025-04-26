@@ -5,7 +5,7 @@ on:
     branches:
       - deployment
   schedule:
-    - cron: '0 1 * * *'  # runs at 01:00 UTC ≈ 03:00 Tirana each day
+    - cron: "0 1 * * *" # runs at 01:00 UTC ≈ 03:00 Tirana each day
 
 jobs:
   update-dashboard:
@@ -20,7 +20,7 @@ jobs:
       - name: Set up Python
         uses: actions/setup-python@v4
         with:
-          python-version: '3.x'
+          python-version: "3.x"
 
       - name: Install system dependencies & Python libs
         run: |
@@ -38,7 +38,7 @@ jobs:
       - name: Commit updated dashboard & data
         uses: stefanzweifel/git-auto-commit-action@v4
         with:
-          commit_message: chore: daily dashboard update
+          commit_message: "chore: daily dashboard update"
           branch: deployment
           file_pattern: |
             docs/dashboard.html
