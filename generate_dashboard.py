@@ -65,7 +65,7 @@ if avg_today is not None:
 html_lines.append('</body></html>')
 
 with open(OUTPUT_HTML, 'w') as f:
-    f.write('
-'.join(html_lines))
+    f.write('\n'.join(html_lines))
+
 
 print(f"Dashboard updated: {OUTPUT_HTML}")
