@@ -48,6 +48,8 @@ driver = None
 
 # Selenium options
 chrome_options = Options()
+# point to the Chromium binary on Ubuntu
+chrome_options.binary_location = '/usr/bin/chromium-browser'
 chrome_options.add_argument('--headless')
 chrome_options.add_argument('--disable-gpu')
 chrome_options.add_argument('--no-sandbox')
