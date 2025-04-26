@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """
-Daily MerrJep scraper for real estate listings by neighborhood,
-processing two neighborhoods per session restart,
-and logging daily neighborhood indices by date.
+Concurrent scraper for MerrJep real estate listings by neighborhood with live progress and JS rendering,
+with fallback link detection and data cleaning.
+
+Updated to process 2 neighborhoods at a time, restarting both the Selenium session and HTTP session
+after every 2 neighborhoods.
 """
 
-import os
 import csv
 import time
-from datetime import datetime
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import urljoin, quote, urlparse, urlunparse
 
@@ -18,26 +18,14 @@ from bs4 import BeautifulSoup
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from tqdm import tqdm
-import schedule
 
 # Constants
 BASE_URL = 'https://www.merrjep.al'
 CSV_INPUT = 'neighborhoods.csv'
 CSV_LISTINGS_OUTPUT = 'listings_data.csv'
-# Daily log file for neighborhood indices
-LOG_INDICES_FILE = 'neighborhood_indices_log.csv'
+CSV_INDICES_OUTPUT = 'neighborhood_indices.csv'
 URL_TEMPLATE = BASE_URL + '/njoftime/imobiliare-vendbanime/apartamente/tirane/q-{}'
 
-# Selenium headless Chrome options
-chrome_options = Options()
-# Use Chromium binary provided by GitHub Actions runner
-ochrome_options.binary_location = "/usr/bin/chromium-browser"
-chrome_options.add_argument('--headless')
-chrome_options.add_argument('--disable-gpu')
-chrome_options.add_argument('--no-sandbox')
-chrome_options.add_argument('--disable-dev-shm-usage')
-
-# Requests defaults
 HEADERS = {
     'User-Agent': (
         'Mozilla/5.0 (Windows NT 10.0; Win64; x64) '
@@ -52,6 +40,17 @@ MAX_AREA = 500    # m²
 MIN_PPSM = 200    # €/m²
 MAX_PPSM = 5000   # €/m²
 
+# Globals that will be re-created every chunk
+session = None
+driver = None
+
+# Pre-define Chrome options once
+chrome_options = Options()
+chrome_options.add_argument('--headless')
+chrome_options.add_argument('--disable-gpu')
+chrome_options.add_argument('--no-sandbox')
+chrome_options.add_argument('--disable-dev-shm-usage')
+
 
 def sanitize(name):
     return quote(name.strip().lower().replace(' ', '-'))
@@ -64,11 +63,13 @@ def extract_price(el):
 
 
 def parse_listing_detail(soup):
+    # Price
     price = None
     el = soup.select_one('bdi.new-price span.format-money-int')
     if el:
         price = extract_price(el)
 
+    # Category
     category = 'sale'
     for tag in soup.select('a.tag-item'):
         txt = tag.get_text(strip=True).lower()
@@ -79,6 +80,7 @@ def parse_listing_detail(soup):
             category = 'sale'
             break
 
+    # Rooms & Area
     rooms = None
     area = None
     for tag in soup.select('a.tag-item, .tag-item'):
@@ -98,17 +100,27 @@ def parse_listing_detail(soup):
                 area = float(v.split()[0].replace(',', '.'))
             except:
                 pass
+
     return price, rooms, area, category
 
 
 def fetch_detail(args):
+    """Fetch and parse a detail page given (href, neighborhood). Uses global session."""
     href, neighborhood = args
     raw_url = urljoin(BASE_URL, href)
+
+    # Properly encode path segments (especially '+')
     parsed = urlparse(raw_url)
     fixed_path = quote(parsed.path, safe='/')
-    detail_url = urlunparse((parsed.scheme, parsed.netloc,
-                             fixed_path, parsed.params,
-                             parsed.query, parsed.fragment))
+    detail_url = urlunparse((
+        parsed.scheme,
+        parsed.netloc,
+        fixed_path,
+        parsed.params,
+        parsed.query,
+        parsed.fragment
+    ))
+
     try:
         r = session.get(detail_url, timeout=10)
         r.raise_for_status()
@@ -121,7 +133,7 @@ def fetch_detail(args):
                 'rooms': rooms,
                 'area': area,
                 'category': category,
-                'price_per_m2': price/area
+                'price_per_m2': price / area
             }
     except Exception as e:
         tqdm.write(f"Detail error {detail_url}: {e}")
@@ -129,6 +141,7 @@ def fetch_detail(args):
 
 
 def scrape_neighborhood(nb, total_bar):
+    """Scrape all listings for one neighborhood using global driver and session."""
     slug = sanitize(nb)
     url = URL_TEMPLATE.format(slug)
     tqdm.write(f"\n[{nb}] loading → {url}")
@@ -137,6 +150,7 @@ def scrape_neighborhood(nb, total_bar):
     time.sleep(2)
     soup = BeautifulSoup(driver.page_source, 'html.parser')
 
+    # Primary link detection
     anchors = soup.select('a.Link_vis')
     if not anchors:
         conts = soup.select('li.announcement-item')
@@ -148,8 +162,9 @@ def scrape_neighborhood(nb, total_bar):
 
     tasks = [(a['href'], nb) for a in anchors]
     records = []
-    with ThreadPoolExecutor(max_workers=8) as ex:
-        futures = [ex.submit(fetch_detail, t) for t in tasks]
+
+    with ThreadPoolExecutor(max_workers=8) as executor:
+        futures = [executor.submit(fetch_detail, t) for t in tasks]
         for fut in tqdm(as_completed(futures), total=len(futures),
                         desc=f'Parsing {nb}', leave=False):
             rec = fut.result()
@@ -157,72 +172,70 @@ def scrape_neighborhood(nb, total_bar):
                 records.append(rec)
                 total_bar.update(1)
                 tqdm.write(f"Scraped → {rec}")
+
     return records
 
 
-def chunks(lst, n):
-    for i in range(0, len(lst), n):
-        yield lst[i:i + n]
+def main():
+    global session, driver
 
-
-def run_scraper():
-    # Load neighborhoods
+    # Read neighborhoods
     with open(CSV_INPUT) as f:
-        nbs = [r[0] for r in csv.reader(f) if r]
+        neighborhoods = [row[0] for row in csv.reader(f) if row]
 
-    all_listings = []
+    all_records = []
+    total = tqdm(desc='Total listings', unit='listing')
 
-    # Process in batches of 2
-    for batch in chunks(nbs, 2):
-        # Restart session and driver
-        global session, driver
+    # Process in chunks of 2 neighborhoods, restarting session & driver each time
+    for i in range(0, len(neighborhoods), 2):
+        chunk = neighborhoods[i:i + 2]
+
+        # New HTTP session
         session = requests.Session()
         session.headers.update(HEADERS)
+
+        # New Selenium driver
         driver = webdriver.Chrome(options=chrome_options)
 
-        total = tqdm(desc='Batch Total', unit='listing')
-        for nb in tqdm(batch, desc='Neighborhoods Batch'):
+        # Scrape this chunk
+        for nb in tqdm(chunk, desc=f'Neighborhoods {i+1}-{i+len(chunk)}'):
             try:
-                all_listings += scrape_neighborhood(nb, total)
+                all_records += scrape_neighborhood(nb, total)
             except Exception as e:
                 tqdm.write(f"{nb} error: {e}")
-        total.close()
-        driver.quit()
 
-    # Clean and save raw listings
-    df = pd.DataFrame(all_listings).drop_duplicates()
+        # Tear down this session
+        driver.quit()
+        driver = None
+        session = None
+
+    total.close()
+
+    # Build DataFrame and clean data
+    df = pd.DataFrame(all_records)
+    df = df.drop_duplicates()
     df = df[(df['area'] >= MIN_AREA) & (df['area'] <= MAX_AREA)]
     df = df[(df['price_per_m2'] >= MIN_PPSM) & (df['price_per_m2'] <= MAX_PPSM)]
+
     df.to_csv(CSV_LISTINGS_OUTPUT, index=False)
     print(f"Saved {len(df)} cleaned listings to {CSV_LISTINGS_OUTPUT}")
 
-    # Compute indices
-    inds = []
+    # Compute indices per neighborhood
+    indices = []
     for nb, grp in df.groupby('neighborhood'):
         sale = grp[grp['category'] == 'sale']
         rent = grp[grp['category'] == 'rent']
-        inds.append({
+        indices.append({
             'neighborhood': nb,
             'avg_sale_price_per_m2': sale['price_per_m2'].mean() if not sale.empty else None,
             'avg_rent_price': rent['price'].mean() if not rent.empty else None,
             'avg_rent_price_per_m2': rent['price_per_m2'].mean() if not rent.empty else None,
             'avg_rooms': grp['rooms'].mean()
         })
-    inds_df = pd.DataFrame(inds)
 
-    # Log indices with date
-    today = datetime.now().strftime('%Y-%m-%d')
-    inds_df.insert(0, 'date', today)
-    if not os.path.exists(LOG_INDICES_FILE):
-        inds_df.to_csv(LOG_INDICES_FILE, index=False)
-    else:
-        inds_df.to_csv(LOG_INDICES_FILE, mode='a', header=False, index=False)
-    print(f"Logged indices for {today} to {LOG_INDICES_FILE}")
+    pd.DataFrame(indices).to_csv(CSV_INDICES_OUTPUT, index=False)
+    print(f"Saved indices to {CSV_INDICES_OUTPUT}")
+
 
 if __name__ == '__main__':
-    # Initial run, then schedule daily
-    run_scraper()
-    schedule.every().day.at('00:00').do(run_scraper)
-    while True:
-        schedule.run_pending()
-        time.sleep(60)
+    main()
