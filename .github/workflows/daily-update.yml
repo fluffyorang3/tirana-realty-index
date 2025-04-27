@@ -1,55 +1,44 @@
 name: 🔄 Daily Dashboard Update
 
 permissions:
-  contents: write # needed for pushing commits
-  pages: write # needed for GitHub Pages
-  id-token: write # needed by configure-pages
+  contents: write # for the commit step
+  pages: write # for the Pages deploy
+  id-token: write # required by configure-pages
 
 on:
-  push:
-    branches:
-      - main
-
   schedule:
-    - cron: "30 3 * * *" # 03:30 UTC → 05:30 CEST (Tirana)
-  workflow_dispatch: {}
+    - cron: "30 3 * * *" # 03:30 UTC → 05:30 CEST daily
+  workflow_dispatch: {} # manual trigger
 
 jobs:
   update-dashboard:
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout main
-        uses: actions/checkout@v3
+      - uses: actions/checkout@v3
         with:
-          ref: main
           persist-credentials: true
 
-      - name: Set up Python
-        uses: actions/setup-python@v4
+      - uses: actions/setup-python@v4
         with:
           python-version: "3.x"
 
-      - name: Install dependencies
-        run: |
+      - run: |
           sudo apt-get update
           sudo apt-get install -y chromium-browser chromium-chromedriver
-          python -m pip install --upgrade pip
+          pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run scraper & build dashboard
+      - name: Scrape & build
         run: |
           python scraper.py
           python generate_dashboard.py
 
-      - name: Commit & push changes if any
+      - name: Commit & push if changed
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
           git add docs/index.html docs/static/graphs/*.png historical_indices.csv
-          if git diff --cached --quiet; then
-            echo "✅ No changes to commit."
-          else
+          if ! git diff --cached --quiet; then
             git commit -m "chore: daily dashboard update"
             git push origin main
           fi
@@ -57,20 +46,10 @@ jobs:
   deploy-pages:
     needs: update-dashboard
     runs-on: ubuntu-latest
-
     steps:
-      - name: Checkout main
-        uses: actions/checkout@v3
-        with:
-          ref: main
-
-      - name: Configure GitHub Pages
-        uses: actions/configure-pages@v3
-
-      - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v1
+      - uses: actions/checkout@v3
+      - uses: actions/configure-pages@v3
+      - uses: actions/upload-pages-artifact@v1
         with:
           path: docs
-
-      - name: Deploy to GitHub Pages
-        uses: actions/deploy-pages@v1
+      - uses: actions/deploy-pages@v1
