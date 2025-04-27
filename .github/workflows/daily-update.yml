@@ -1,16 +1,15 @@
 name: 🔄 Daily Dashboard Update
 
 permissions:
-  contents: write
+  contents: write # needed for your commit step
+  pages: write # needed for the deploy-pages step
+  id-token: write # required by configure-pages
 
 on:
   push:
-    branches:
-      - main
-
+    branches: [main]
   schedule:
-    - cron: "30 3 * * *" # runs at 03:30 UTC → 05:30 CEST (Tirana) each day
-
+    - cron: "30 3 * * *" # 03:30 UTC → 05:30 CEST
   workflow_dispatch: {}
 
 jobs:
@@ -51,3 +50,24 @@ jobs:
             docs/index.html
             docs/static/graphs/*.png
             historical_indices.csv
+
+  deploy-pages:
+    needs: update-dashboard
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout main branch
+        uses: actions/checkout@v3
+        with:
+          ref: main
+
+      - name: Configure GitHub Pages
+        uses: actions/configure-pages@v3
+
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v1
+        with:
+          path: docs
+
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v1
