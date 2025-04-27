@@ -1,16 +1,19 @@
 name: 🔄 Daily Dashboard Update
 
 permissions:
-  contents: write # needed for your commit step
-  pages: write # needed for the deploy-pages step
-  id-token: write # required by configure-pages
+  contents: write # needed for committing updated dashboard files
+  pages: write # needed for GitHub Pages deployment
+  id-token: write # required by actions/configure-pages
 
 on:
   push:
-    branches: [main]
+    branches:
+      - main
+
   schedule:
-    - cron: "30 3 * * *" # 03:30 UTC → 05:30 CEST
-  workflow_dispatch: {}
+    - cron: "30 3 * * *" # runs at 03:30 UTC → 05:30 CEST (Tirana) each day
+
+  workflow_dispatch: {} # allows manual triggering
 
 jobs:
   update-dashboard:
