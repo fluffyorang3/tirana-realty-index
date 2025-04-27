@@ -1,9 +1,9 @@
 name: 🔄 Daily Dashboard Update
 
 permissions:
-  contents: write # needed for committing updated dashboard files
-  pages: write # needed for GitHub Pages deployment
-  id-token: write # required by actions/configure-pages
+  contents: write # needed for pushing commits
+  pages: write # needed for GitHub Pages
+  id-token: write # needed by configure-pages
 
 on:
   push:
@@ -11,16 +11,15 @@ on:
       - main
 
   schedule:
-    - cron: "30 3 * * *" # runs at 03:30 UTC → 05:30 CEST (Tirana) each day
-
-  workflow_dispatch: {} # allows manual triggering
+    - cron: "30 3 * * *" # 03:30 UTC → 05:30 CEST (Tirana)
+  workflow_dispatch: {}
 
 jobs:
   update-dashboard:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout main branch
+      - name: Checkout main
         uses: actions/checkout@v3
         with:
           ref: main
@@ -31,35 +30,36 @@ jobs:
         with:
           python-version: "3.x"
 
-      - name: Install system dependencies & Python libs
+      - name: Install dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y chromium-browser chromium-chromedriver
           python -m pip install --upgrade pip
           pip install -r requirements.txt
 
-      - name: Run scraper
-        run: python scraper.py
+      - name: Run scraper & build dashboard
+        run: |
+          python scraper.py
+          python generate_dashboard.py
 
-      - name: Generate dashboard
-        run: python generate_dashboard.py
-
-      - name: Commit updated dashboard & data
-        uses: stefanzweifel/git-auto-commit-action@v4
-        with:
-          commit_message: "chore: daily dashboard update"
-          branch: main
-          file_pattern: |
-            docs/index.html
-            docs/static/graphs/*.png
-            historical_indices.csv
+      - name: Commit & push changes if any
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/index.html docs/static/graphs/*.png historical_indices.csv
+          if git diff --cached --quiet; then
+            echo "✅ No changes to commit."
+          else
+            git commit -m "chore: daily dashboard update"
+            git push origin main
+          fi
 
   deploy-pages:
     needs: update-dashboard
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout main branch
+      - name: Checkout main
         uses: actions/checkout@v3
         with:
           ref: main
