@@ -133,60 +133,45 @@ for d in dates:
 
 # Create Folium map centered on Tirana
 map_center = [coords['latitude'].mean(), coords['longitude'].mean()]
-# Use a beautiful dark background
+# Initialize map with valid tile providers
 map_ = folium.Map(
     location=map_center,
     zoom_start=12,
-    tiles='CartoDB dark_matter',
-    attr='CartoDB'
+    tiles='CartoDB positron',  # valid CartoDB base
 )
+# Add alternative layers
+folium.TileLayer('openstreetmap', name='OSM', control=True).add_to(map_)
+folium.TileLayer('Stamen Toner Lite', name='Toner Lite', control=True).add_to(map_)
+# Layer switcher
+folium.LayerControl().add_to(map_)
 
-# Define a smooth, transparent-to-hot gradient
+# Define a smooth gradient keyed to normalized values
 gradient = {
-    0.0: 'transparent',  # no intensity at lowest
-    0.2: 'blue',
-    0.4: 'cyan',
-    0.6: 'lime',
-    0.8: 'yellow',
-    1.0: 'red'
+    0.0: 'blue',    # low prices
+    0.25: 'cyan',
+    0.5: 'lime',
+    0.75: 'orange',
+    1.0: 'red'      # high prices
 }
 
-# Add time-enabled heatmap with custom blur and radius
+# Add time-enabled heatmap with adjusted radius/blur/opacities
 HeatMapWithTime(
     data=heat_data,
     index=dates,
     gradient=gradient,
-    radius=50,
-    blur=25,
-    min_opacity=0.2,
-    max_opacity=0.9,
+    radius=30,
+    blur=15,
+    min_opacity=0.4,
+    max_opacity=0.8,
     use_local_extrema=False,
     auto_play=False,
     overlay=True,
     control=True
 ).add_to(map_)
 
-# Gradient keyed to normalized value
-gradient = {
-    0.0: 'blue',   # MIN_VAL
-    0.3: 'lime',   # 800 + 0.3*(3000-800)≃1640
-    0.5: 'yellow', # ≃1900
-    0.8: 'orange', # ≃2840
-    1.0: 'red'     # MAX_VAL
-}
-
-HeatMapWithTime(
-    data=heat_data,
-    index=dates,
-    gradient=gradient,
-    radius=40,
-    min_opacity=0.3,
-    max_opacity=0.7,
-    use_local_extrema=False,
-    auto_play=False,
-    overlay=True,
-    control=True
-).add_to(map_)
+# Save heatmap
+os.makedirs(HTML_DIR, exist_ok=True)
+map_.save(HEATMAP_HTML)
 
 # Save heatmap
 os.makedirs(HTML_DIR, exist_ok=True)
