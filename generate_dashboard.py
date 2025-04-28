@@ -133,7 +133,38 @@ for d in dates:
 
 # Create Folium map centered on Tirana
 map_center = [coords['latitude'].mean(), coords['longitude'].mean()]
-map_ = folium.Map(location=map_center, zoom_start=12)
+# Use a beautiful dark background
+map_ = folium.Map(
+    location=map_center,
+    zoom_start=12,
+    tiles='CartoDB dark_matter',
+    attr='CartoDB'
+)
+
+# Define a smooth, transparent-to-hot gradient
+gradient = {
+    0.0: 'transparent',  # no intensity at lowest
+    0.2: 'blue',
+    0.4: 'cyan',
+    0.6: 'lime',
+    0.8: 'yellow',
+    1.0: 'red'
+}
+
+# Add time-enabled heatmap with custom blur and radius
+HeatMapWithTime(
+    data=heat_data,
+    index=dates,
+    gradient=gradient,
+    radius=50,
+    blur=25,
+    min_opacity=0.2,
+    max_opacity=0.9,
+    use_local_extrema=False,
+    auto_play=False,
+    overlay=True,
+    control=True
+).add_to(map_)
 
 # Gradient keyed to normalized value
 gradient = {
