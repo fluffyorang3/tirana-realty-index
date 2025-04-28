@@ -63,7 +63,6 @@ for fn in os.listdir(GRAPH_OUT):
 # 5) Per-neighborhood time series graphs
 for neighborhood, grp in hist.groupby('neighborhood'):
     grp = grp.set_index('date').sort_index()
-    # ensure index is datetime
     if not pd.api.types.is_datetime64_any_dtype(grp.index):
         grp.index = pd.to_datetime(grp.index)
 
@@ -72,22 +71,17 @@ for neighborhood, grp in hist.groupby('neighborhood'):
         continue
 
     min_dt = series.index.min().to_pydatetime()
-
     fig, ax = plt.subplots(figsize=GRAPH_SIZE, dpi=GRAPH_DPI)
     ax.plot(series.index.to_pydatetime(), series.values, marker='o', linestyle='-')
     ax.set_title(f'{neighborhood} €/m² over time')
     ax.set_ylabel('€/m²')
-
     ax.set_xlim(min_dt, today_dt)
-    if len(series) > 1:
-        locator = mdates.AutoDateLocator()
-    else:
-        locator = FixedLocator([mdates.date2num(min_dt), mdates.date2num(today_dt)])
+    locator = mdates.AutoDateLocator() if len(series) > 1 else FixedLocator([mdates.date2num(min_dt), mdates.date2num(today_dt)])
     ax.xaxis.set_major_locator(locator)
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
     fig.autofmt_xdate()
-
     fig.tight_layout()
+
     safe = neighborhood.replace(' ', '_')
     fig.savefig(os.path.join(GRAPH_OUT, f'{safe}.png'))
     plt.close(fig)
@@ -104,21 +98,15 @@ if not overall.empty:
         overall.index = pd.to_datetime(overall.index)
 
     min_dt = overall.index.min().to_pydatetime()
-
     fig, ax = plt.subplots(figsize=GRAPH_SIZE, dpi=GRAPH_DPI)
     ax.plot(overall.index.to_pydatetime(), overall.values, marker='o', linestyle='-')
     ax.set_title('Average €/m² across all neighborhoods')
     ax.set_ylabel('€/m²')
-
     ax.set_xlim(min_dt, today_dt)
-    if len(overall) > 1:
-        locator = mdates.AutoDateLocator()
-    else:
-        locator = FixedLocator([mdates.date2num(min_dt), mdates.date2num(today_dt)])
+    locator = mdates.AutoDateLocator() if len(overall) > 1 else FixedLocator([mdates.date2num(min_dt), mdates.date2num(today_dt)])
     ax.xaxis.set_major_locator(locator)
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
     fig.autofmt_xdate()
-
     fig.tight_layout()
     fig.savefig(os.path.join(GRAPH_OUT, 'average.png'))
     plt.close(fig)
@@ -139,30 +127,45 @@ heat_data = []
 for d in dates:
     d_df = df_map[df_map['date'].dt.strftime('%Y-%m-%d') == d]
     heat_data.append(
-        d_df[['latitude', 'longitude', 'avg_sale_price_per_m2']]
-            .values
-            .tolist()
+        d_df[['latitude', 'longitude', 'avg_sale_price_per_m2']].values.tolist()
     )
 
 # Create folium map centered on Tirana average coordinate
 map_center = [coords['latitude'].mean(), coords['longitude'].mean()]
 m = folium.Map(location=map_center, zoom_start=12)
+
+# Updated heatmap parameters: larger radius and value-based gradient
+min_val, max_val = 800, 3000  # €/m² range for normalization
+gradient = {
+    0.0: 'blue',        # ~800
+    0.3: 'lime',        # ~1500
+    0.5: 'yellow',      # ~2000
+    0.8: 'orange',      # ~2500
+    1.0: 'red'          # ~3000
+}
+
 HeatMapWithTime(
     heat_data,
     index=dates,
-    radius=25,
+    gradient=gradient,
+    radius=35,
+    min_opacity=0.3,
+    max_opacity=0.7,
+    use_local_extrema=False,
     auto_play=False,
-    max_opacity=0.8,
+    overlay=True,
+    control=True,
+    show=True
 ).add_to(m)
-# Ensure docs folder exists and save
+
+# Save the interactive map
 os.makedirs(HTML_DIR, exist_ok=True)
 m.save(HEATMAP_HTML)
 
 # 8) Build HTML dashboard with embedded heatmap
 latest_date = TODAY if TODAY in hist['date'].values else hist['date'].max()
 today_df = (
-    hist[hist['date'] == latest_date]
-        .drop_duplicates(subset=['neighborhood'])
+    hist[hist['date'] == latest_date].drop_duplicates(subset=['neighborhood'])
 )
 
 html_parts = [
@@ -191,7 +194,7 @@ html_parts = [
     '  <div class="grid">'
 ]
 
-# Add per-neighborhood cards
+# Add cards
 for _, row in today_df.iterrows():
     nb    = row['neighborhood']
     price = row['avg_sale_price_per_m2']
@@ -204,7 +207,7 @@ for _, row in today_df.iterrows():
         '    </div>'
     ]
 
-# Overall average card
+# Overall average
 if latest_date in overall.index:
     avg = overall.loc[latest_date]
     html_parts += [
@@ -215,7 +218,6 @@ if latest_date in overall.index:
         '    </div>'
     ]
 
-# Close HTML
 html_parts += [
     '  </div>',
     '</body>',
