@@ -6,9 +6,9 @@ generate_dashboard.py
 – Reads tirana_neighborhood_coords.csv
 – Ensures `date` is datetime
 – Drops duplicate (date, neighborhood)
-– Emits per-neighborhood & overall graphs, bounding x-axis to [first logged date, today]
+– Emits per-neighborhood & overall graphs
 – Builds docs/index.html with one card per neighborhood + overall card + embedded heatmap
-– Generates docs/heatmap.html with interactive time-slider heatmap of avg_sale_price_per_m2
+– Generates docs/heatmap.html with interactive time-slider heatmap of avg_sale_price_per_m2 normalized to 0–1
 """
 
 import os
@@ -32,6 +32,9 @@ GRAPH_OUT    = os.path.join(HTML_DIR, 'static', 'graphs')
 GRAPH_URL    = './static/graphs'
 GRAPH_SIZE   = (5, 3)     # inches
 GRAPH_DPI    = 100
+# €/m² normalization range
+MIN_VAL      = 800
+MAX_VAL      = 3000
 # ────────────────────────────────────────────────────────────────────────────
 
 # 1) Load CSVs and force date → datetime
@@ -55,7 +58,6 @@ today_dt     = TODAY.to_pydatetime()
 
 # 4) Prepare graph output folder
 os.makedirs(GRAPH_OUT, exist_ok=True)
-# remove stale PNGs
 for fn in os.listdir(GRAPH_OUT):
     if fn.lower().endswith('.png'):
         os.remove(os.path.join(GRAPH_OUT, fn))
@@ -112,119 +114,99 @@ if not overall.empty:
     plt.close(fig)
 
 # 7) Generate interactive heatmap with historical slider
-# Merge historical data with coordinates
-df_map = pd.merge(
-    hist,
-    coords[['neighborhood', 'latitude', 'longitude']],
-    on='neighborhood',
-    how='inner'
-)
+# Merge hist with coords
+df_map = hist.merge(coords[['neighborhood', 'latitude', 'longitude']], on='neighborhood', how='inner')
 df_map = df_map.sort_values('date')
 
-# Build heatmap frames per date
+# Build heatmap frames per date with normalized weight
 dates = df_map['date'].dt.strftime('%Y-%m-%d').unique().tolist()
 heat_data = []
 for d in dates:
-    d_df = df_map[df_map['date'].dt.strftime('%Y-%m-%d') == d]
-    heat_data.append(
-        d_df[['latitude', 'longitude', 'avg_sale_price_per_m2']].values.tolist()
-    )
+    frame = []
+    day = df_map[df_map['date'].dt.strftime('%Y-%m-%d') == d]
+    for _, r in day.iterrows():
+        lat, lon, val = r['latitude'], r['longitude'], r['avg_sale_price_per_m2']
+        # normalize to 0–1
+        w = max(0, min(1, (val - MIN_VAL) / (MAX_VAL - MIN_VAL)))
+        frame.append([lat, lon, w])
+    heat_data.append(frame)
 
-# Create folium map centered on Tirana average coordinate
+# Create Folium map centered on Tirana
 map_center = [coords['latitude'].mean(), coords['longitude'].mean()]
-m = folium.Map(location=map_center, zoom_start=12)
+map_ = folium.Map(location=map_center, zoom_start=12)
 
-# Updated heatmap parameters: larger radius and value-based gradient
-min_val, max_val = 800, 3000  # €/m² range for normalization
+# Gradient keyed to normalized value
 gradient = {
-    0.0: 'blue',        # ~800
-    0.3: 'lime',        # ~1500
-    0.5: 'yellow',      # ~2000
-    0.8: 'orange',      # ~2500
-    1.0: 'red'          # ~3000
+    0.0: 'blue',   # MIN_VAL
+    0.3: 'lime',   # 800 + 0.3*(3000-800)≃1640
+    0.5: 'yellow', # ≃1900
+    0.8: 'orange', # ≃2840
+    1.0: 'red'     # MAX_VAL
 }
 
 HeatMapWithTime(
-    heat_data,
+    data=heat_data,
     index=dates,
     gradient=gradient,
-    radius=35,
+    radius=40,
     min_opacity=0.3,
     max_opacity=0.7,
     use_local_extrema=False,
     auto_play=False,
     overlay=True,
-    control=True,
-    show=True
-).add_to(m)
+    control=True
+).add_to(map_)
 
-# Save the interactive map
+# Save heatmap
 os.makedirs(HTML_DIR, exist_ok=True)
-m.save(HEATMAP_HTML)
+map_.save(HEATMAP_HTML)
 
-# 8) Build HTML dashboard with embedded heatmap
-latest_date = TODAY if TODAY in hist['date'].values else hist['date'].max()
-today_df = (
-    hist[hist['date'] == latest_date].drop_duplicates(subset=['neighborhood'])
-)
+# 8) Build HTML dashboard
+latest = TODAY if TODAY in hist['date'].values else hist['date'].max()
+today_df = hist[hist['date'] == latest].drop_duplicates('neighborhood')
 
-html_parts = [
+html = [
     '<!doctype html>',
     '<html lang="en">',
     '<head>',
     '  <meta charset="utf-8">',
     '  <meta name="viewport" content="width=device-width, initial-scale=1">',
-    '  <title>Daily Price/m² Dashboard</title>',
+    f'  <title>Daily Price/m² Dashboard — {DISPLAY_DATE}</title>',
     '  <link href="https://fonts.googleapis.com/css2?family=Inter&display=swap" rel="stylesheet">',
-    '  <style>',
-    '    body { font-family: "Inter", sans-serif; margin:0; padding:1rem; background:#f5f5f5; }',
-    '    h1   { text-align:center; margin-bottom:1rem; }',
-    '    .map-container { width:100%; height:500px; margin-bottom:1.5rem; }',
-    '    .grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(300px,1fr)); gap:1rem; }',
-    '    .card { background:#fff; padding:1rem; border-radius:8px; box-shadow:0 2px 5px rgba(0,0,0,0.1); }',
-    '    .card img { width:100%; height:auto; }',
-    '    .card h2{ margin-top:0; }',
-    '  </style>',
+    '  <style>body{font-family:Inter,sans-serif;margin:0;padding:1rem;background:#f5f5f5}h1{text-align:center;margin-bottom:1rem}.map-container{width:100%;height:500px;margin-bottom:1.5rem}.grid{display:grid;grid-template-columns:repeat(auto-fit,minmax(300px,1fr));gap:1rem}.card{background:#fff;padding:1rem;border-radius:8px;box-shadow:0 2px 5px rgba(0,0,0,0.1)}.card img{width:100%;height:auto}.card h2{margin-top:0}</style>',
     '</head>',
     '<body>',
     f'  <h1>Prices on {DISPLAY_DATE}</h1>',
     '  <div class="map-container">',
-    '    <iframe src="heatmap.html" style="width:100%; height:100%; border:none;"></iframe>',
+    '    <iframe src="heatmap.html" style="width:100%;height:100%;border:none"></iframe>',
     '  </div>',
     '  <div class="grid">'
 ]
 
-# Add cards
-for _, row in today_df.iterrows():
-    nb    = row['neighborhood']
-    price = row['avg_sale_price_per_m2']
-    safe  = nb.replace(' ', '_')
-    html_parts += [
-        '    <div class="card">',
-        f'      <h2>{nb}</h2>',
-        f'      <p><strong>{price:.2f} €/m²</strong></p>',
-        f'      <img src="{GRAPH_URL}/{safe}.png" alt="{nb} price chart">',
-        '    </div>'
+for _, r in today_df.iterrows():
+    nb, p = r['neighborhood'], r['avg_sale_price_per_m2']
+    safe = nb.replace(' ', '_')
+    html += [
+        '<div class="card">',
+        f'<h2>{nb}</h2>',
+        f'<p><strong>{p:.2f} €/m²</strong></p>',
+        f'<img src="{GRAPH_URL}/{safe}.png" alt="{nb} chart">',
+        '</div>'
     ]
 
-# Overall average
-if latest_date in overall.index:
-    avg = overall.loc[latest_date]
-    html_parts += [
-        '    <div class="card">',
-        '      <h2>Overall Average</h2>',
-        f'      <p><strong>{avg:.2f} €/m²</strong></p>',
-        f'      <img src="{GRAPH_URL}/average.png" alt="Overall price chart">',
-        '    </div>'
+if not overall.empty and latest in overall.index:
+    avg = overall.loc[latest]
+    html += [
+        '<div class="card">',
+        '<h2>Overall Average</h2>',
+        f'<p><strong>{avg:.2f} €/m²</strong></p>',
+        f'<img src="{GRAPH_URL}/average.png" alt="overall chart">',
+        '</div>'
     ]
 
-html_parts += [
-    '  </div>',
-    '</body>',
-    '</html>'
-]
+html += ['</div>','</body>','</html>']
 
 with open(OUTPUT_HTML, 'w') as f:
-    f.write('\n'.join(html_parts))
+    f.write("\n".join(html))
 
 print(f"Dashboard updated: {OUTPUT_HTML}")
