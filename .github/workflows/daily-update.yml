@@ -1,28 +1,31 @@
 name: "🔄 Daily Dashboard Update"
 
 permissions:
-  contents: write # for the commit step
-  pages: write # for the Pages deploy
-  id-token: write # required by configure-pages
+  contents: write # needed to commit updated files
+  pages: write # needed to deploy to Pages
+  id-token: write # needed by configure-pages
 
 on:
   schedule:
-    - cron: "30 3 * * *" # 03:30 UTC → 05:30 CEST daily
+    - cron: "30 3 * * *" # every day at 03:30 UTC
   workflow_dispatch: {} # manual trigger
 
 jobs:
   update-dashboard:
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
         with:
           persist-credentials: true
 
-      - uses: actions/setup-python@v4
+      - name: Set up Python
+        uses: actions/setup-python@v4
         with:
           python-version: "3.x"
 
-      - name: Install system & Python deps
+      - name: Install system & Python dependencies
         run: |
           sudo apt-get update
           sudo apt-get install -y chromium-browser chromium-chromedriver
@@ -30,12 +33,12 @@ jobs:
           pip install -r requirements.txt
           pip install folium branca
 
-      - name: Scrape & build
+      - name: Scrape data & build dashboard
         run: |
           python scraper.py
           python generate_dashboard.py
 
-      - name: Commit & push if changed
+      - name: Commit & push updates
         run: |
           git config user.name "github-actions[bot]"
           git config user.email "github-actions[bot]@users.noreply.github.com"
@@ -48,13 +51,18 @@ jobs:
   deploy-pages:
     needs: update-dashboard
     runs-on: ubuntu-latest
+
     steps:
-      - uses: actions/checkout@v3
+      - name: Checkout repository
+        uses: actions/checkout@v3
 
-      - uses: actions/configure-pages@v3
+      - name: Configure Pages
+        uses: actions/configure-pages@v3
 
-      - uses: actions/upload-pages-artifact@v1
+      - name: Upload Pages artifact
+        uses: actions/upload-pages-artifact@v1
         with:
           path: docs
 
-      - uses: actions/deploy-pages@v1
+      - name: Deploy to GitHub Pages
+        uses: actions/deploy-pages@v1
