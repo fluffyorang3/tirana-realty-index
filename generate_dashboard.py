@@ -141,7 +141,12 @@ map_ = folium.Map(
 )
 # Add alternative layers
 folium.TileLayer('openstreetmap', name='OSM', control=True).add_to(map_)
-folium.TileLayer('Stamen Toner Lite', name='Toner Lite', control=True).add_to(map_)
+folium.TileLayer(
+    'Stamen Toner Lite',
+    name='Toner Lite',
+    control=True,
+    attr='Map tiles by Stamen Design (CC BY 3.0). Data by OpenStreetMap (ODbL)'
+).add_to(map_)
 # Layer switcher
 folium.LayerControl().add_to(map_)
 
