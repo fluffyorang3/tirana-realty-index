@@ -1,9 +1,9 @@
 name: "🔄 Daily Dashboard Update"
 
 permissions:
-  contents: write # needed to commit updated files
-  pages: write # needed to deploy to Pages
-  id-token: write # needed by configure-pages
+  contents: write # to commit updated data file
+  pages: write # to deploy via Pages API
+  id-token: write # for configure-pages
 
 on:
   schedule:
@@ -18,7 +18,12 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
-          persist-credentials: true
+          persist-credentials: true # we need to push back
+
+      - name: Configure Git for bot commits
+        run: |
+          git config user.name "dashboard-update-bot"
+          git config user.email "dashboard-update-bot@users.noreply.github.com"
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -38,13 +43,11 @@ jobs:
           python scraper.py
           python generate_dashboard.py
 
-      - name: Commit & push updates
+      - name: Commit & push historical data only
         run: |
-          git config user.name "github-actions[bot]"
-          git config user.email "github-actions[bot]@users.noreply.github.com"
-          git add docs/index.html docs/heatmap.html docs/static/graphs/*.png historical_indices.csv
+          git add historical_indices.csv
           if ! git diff --cached --quiet; then
-            git commit -m "chore: daily dashboard update"
+            git commit -m "chore: update historical indices"
             git push origin main
           fi
 
@@ -53,8 +56,10 @@ jobs:
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository
+      - name: Checkout repository (for Pages API)
         uses: actions/checkout@v3
+        with:
+          persist-credentials: false
 
       - name: Configure Pages
         uses: actions/configure-pages@v3
