@@ -1,31 +1,38 @@
 name: "🔄 Daily Dashboard Update"
 
+# These permissions let the workflow:
+#  - commit back to the repo (contents: write)
+#  - push to the Pages site (pages: write, id-token: write for OIDC)
 permissions:
-  contents: write # to commit updated data file
-  pages: write # to deploy via Pages API
-  id-token: write # for configure-pages
+  contents: write
+  pages: write
+  id-token: write
 
 on:
+  # Run daily at 03:30 UTC (which is 05:30 EET/EEST in Tirana)
   schedule:
-    - cron: "30 3 * * *" # every day at 03:30 UTC
-  workflow_dispatch: {} # manual trigger
+    - cron: "30 3 * * *"
+  # Also allow manual trigger from the “Actions” tab in GitHub
+  workflow_dispatch: {}
 
 jobs:
   update-dashboard:
+    name: Update CSV & Generate Dashboard
     runs-on: ubuntu-latest
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
-          persist-credentials: true # we need to push back
+          # We need to push back an updated CSV, so persist credentials
+          persist-credentials: true
 
       - name: Configure Git for bot commits
         run: |
           git config user.name "dashboard-update-bot"
           git config user.email "dashboard-update-bot@users.noreply.github.com"
 
-      - name: Set up Python
+      - name: Set up Python 3.x
         uses: actions/setup-python@v4
         with:
           python-version: "3.x"
@@ -38,35 +45,52 @@ jobs:
           pip install -r requirements.txt
           pip install folium branca
 
-      - name: Scrape data & build dashboard
+      - name: Scrape listings & Append today’s indices
+        working-directory: ${{ github.workspace }}
         run: |
+          # scraper.py will:
+          #  • Launch headless Chromium
+          #  • Scrape all neighborhoods listed in neighborhoods.csv
+          #  • Append today’s indices (avg_price_per_m2, etc.) to historical_indices.csv
           python scraper.py
+
+      - name: Generate graphs & HTML dashboard
+        working-directory: ${{ github.workspace }}
+        run: |
+          # generate_dashboard.py will:
+          #  • Read historical_indices.csv + tirana_neighborhood_coords.csv
+          #  • Produce /docs/index.html, /docs/heatmap.html, and PNGs under docs/static/graphs/
           python generate_dashboard.py
 
-      - name: Commit & push historical data only
+      - name: Commit & push updated CSV only
         run: |
+          # We only want Git to commit historical_indices.csv changes.
           git add historical_indices.csv
-          if ! git diff --cached --quiet; then
-            git commit -m "chore: update historical indices"
+          if ! git diff --staged --quiet; then
+            git commit -m "chore: append today's indices (${{ github.event_name }} run)"
             git push origin main
+          else
+            echo "No changes in historical_indices.csv — nothing to commit."
           fi
 
   deploy-pages:
+    name: Deploy docs/ to GitHub Pages
     needs: update-dashboard
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository (for Pages API)
+      - name: Checkout repository (for Pages deployment)
         uses: actions/checkout@v3
         with:
           persist-credentials: false
 
-      - name: Configure Pages
+      - name: Configure GitHub Pages
         uses: actions/configure-pages@v3
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v1
         with:
+          # “docs/” must contain index.html, heatmap.html, and static/graphs/*.png
           path: docs
 
       - name: Deploy to GitHub Pages
