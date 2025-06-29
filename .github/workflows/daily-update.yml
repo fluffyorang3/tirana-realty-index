@@ -1,31 +1,27 @@
-# .github/workflows/daily-update.yml
-
 name: 🔄 Daily Dashboard Update
 
 permissions:
-  contents: write # allow committing back to the repo if needed
-  pages: write # allow deploying to GitHub Pages
-  id-token: write # required by configure-pages
+  contents: write # allows committing changes if needed
+  pages: write # required by deploy-pages@v4
+  id-token: write # required for OIDC with deploy-pages
 
 on:
-  # Run daily at 03:30 UTC (05:30 EET)
   schedule:
-    - cron: "30 3 * * *"
-  # Also expose a “Run workflow” button
-  workflow_dispatch: {}
+    - cron: "30 3 * * *" # daily at 03:30 UTC / 05:30 EET
+  workflow_dispatch: {} # adds a “Run workflow” button
 
 jobs:
   build_and_deploy:
     name: Build & Deploy Dashboard
     runs-on: ubuntu-latest
+    environment:
+      name: github-pages # must exist in repo settings
 
     steps:
       - name: Checkout repository
         uses: actions/checkout@v3
-        with:
-          persist-credentials: true
 
-      - name: Set up Python 3.x
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.x"
@@ -47,4 +43,5 @@ jobs:
           path: docs
 
       - name: Deploy to GitHub Pages
+        id: deployment
         uses: actions/deploy-pages@v4
