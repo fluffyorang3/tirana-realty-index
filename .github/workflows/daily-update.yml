@@ -2,20 +2,19 @@
 
 name: 🔄 Build & Deploy Dashboard
 
-# Grant this workflow permission to push content and deploy Pages
 permissions:
-  contents: write
-  pages: write
-  id-token: write
+  contents: write # allow commits if needed
+  pages: write # allow Pages deployments
+  id-token: write # OIDC for configure-pages
 
 on:
   push:
     branches: [main]
-  workflow_dispatch: {}
+  workflow_dispatch: {} # manual “Run workflow” button
 
 jobs:
-  build:
-    name: Build Dashboard
+  build_and_deploy:
+    name: Build & Deploy
     runs-on: ubuntu-latest
 
     steps:
@@ -37,28 +36,11 @@ jobs:
       - name: Generate dashboard
         run: python3 generate_dashboard.py
 
-      - name: Upload docs artifact
-        uses: actions/upload-artifact@v4 # this is the correct action for uploading build outputs
-        with:
-          name: docs
-          path: docs
-
-  deploy:
-    name: Deploy to GitHub Pages
-    needs: build
-    runs-on: ubuntu-latest
-
-    steps:
-      - name: Download docs artifact
-        uses: actions/download-artifact@v4
-        with:
-          name: docs
-
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v3
 
       - name: Upload Pages artifact
-        uses: actions/upload-pages-artifact@v1 # ← revert back to v1
+        uses: actions/upload-pages-artifact@v1
         with:
           path: docs
 
