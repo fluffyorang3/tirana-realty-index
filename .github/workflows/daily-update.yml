@@ -9,10 +9,10 @@ permissions:
   id-token: write
 
 on:
-  # Run daily at 03:30 UTC (which is 05:30 EET/EEST in Tirana)
+  # Run daily at 03:30 UTC (05:30 EET/EEST in Tirana)
   schedule:
     - cron: "30 3 * * *"
-  # Also allow manual trigger from the “Actions” tab in GitHub
+  # Also allow manual trigger
   workflow_dispatch: {}
 
 jobs:
@@ -24,7 +24,6 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v3
         with:
-          # We need to push back an updated CSV, so persist credentials
           persist-credentials: true
 
       - name: Configure Git for bot commits
@@ -45,26 +44,18 @@ jobs:
           pip install -r requirements.txt
           pip install folium branca
 
-      - name: Scrape listings & Append today’s indices
+      - name: Scrape listings & append today’s indices
         working-directory: ${{ github.workspace }}
         run: |
-          # scraper.py will:
-          #  • Launch headless Chromium
-          #  • Scrape all neighborhoods listed in neighborhoods.csv
-          #  • Append today’s indices (avg_price_per_m2, etc.) to historical_indices.csv
           python scraper.py
 
       - name: Generate graphs & HTML dashboard
         working-directory: ${{ github.workspace }}
         run: |
-          # generate_dashboard.py will:
-          #  • Read historical_indices.csv + tirana_neighborhood_coords.csv
-          #  • Produce /docs/index.html, /docs/heatmap.html, and PNGs under docs/static/graphs/
           python generate_dashboard.py
 
       - name: Commit & push updated CSV only
         run: |
-          # We only want Git to commit historical_indices.csv changes.
           git add historical_indices.csv
           if ! git diff --staged --quiet; then
             git commit -m "chore: append today's indices (${{ github.event_name }} run)"
@@ -89,9 +80,6 @@ jobs:
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v1
-        with:
-          # “docs/” must contain index.html, heatmap.html, and static/graphs/*.png
-          path: docs
 
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v1
