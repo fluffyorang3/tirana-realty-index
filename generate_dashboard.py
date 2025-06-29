@@ -4,11 +4,11 @@ generate_dashboard.py
 
 – Reads historical_indices.csv
 – Reads tirana_neighborhood_coords.csv
-– Ensures `date` is datetime
+– Ensures `date` is datetime (mixed formats)
 – Drops duplicate (date, neighborhood)
-– Emits per-neighborhood & overall graphs (now with 14-day MA)
+– Emits per-neighborhood & overall graphs (with 14-day MA)
 – Builds docs/index.html with one card per neighborhood + overall card + embedded heatmap
-– Generates docs/heatmap.html with interactive time-slider heatmap of avg_sale_price_per_m2 normalized to 0–1
+– Generates docs/heatmap.html with interactive time-slider heatmap
 """
 
 import os
@@ -37,12 +37,16 @@ os.makedirs(GRAPH_OUT, exist_ok=True)
 hist = pd.read_csv(INPUT_CSV)
 coords = pd.read_csv(COORD_CSV)
 
-# ensure date dtype and drop duplicates
+# ensure date dtype, handling mixed "YYYY-MM-DD" and "YYYY-MM-DD HH:MM:SS"
 hist['date'] = pd.to_datetime(
-    hist['date'], 
-    infer_datetime_format=True,
-    cache=False
+    hist['date'],
+    format='mixed',
+    cache=False,
+    errors='coerce'
 )
+hist = hist.dropna(subset=['date'])
+
+# drop exact duplicates
 hist = hist.drop_duplicates(['date', 'neighborhood'])
 
 # find latest date
@@ -59,9 +63,6 @@ today_df = (
 # ── 5) Per-neighborhood time series graphs ──────────────────────────────────────
 for neighborhood, grp in hist.groupby('neighborhood'):
     grp = grp.set_index('date').sort_index()
-    if not pd.api.types.is_datetime64_any_dtype(grp.index):
-        grp.index = pd.to_datetime(grp.index)
-
     series = grp['avg_sale_price_per_m2'].dropna()
     if series.empty:
         continue
@@ -75,22 +76,23 @@ for neighborhood, grp in hist.groupby('neighborhood'):
         series.values,
         marker='o',
         linestyle='-',
-        label='Daily price'               # ← MA: label added
+        label='Daily price'
     )
 
-    # ← MA: compute & plot 14-day moving average
+    # 14-day moving average
     ma = series.rolling(window=14, min_periods=1).mean()
     ax.plot(
         ma.index.to_pydatetime(),
         ma.values,
         linestyle='--',
         linewidth=1.5,
-        label='14-day MA'                # ← MA: label added
+        label='14-day MA'
     )
 
     ax.set_title(f'{neighborhood} €/m² over time')
     ax.set_ylabel('€/m²')
     ax.set_xlim(min_dt, today_dt)
+
     locator = (
         mdates.AutoDateLocator()
         if len(series) > 1
@@ -99,8 +101,8 @@ for neighborhood, grp in hist.groupby('neighborhood'):
     ax.xaxis.set_major_locator(locator)
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
     fig.autofmt_xdate()
+    ax.legend()
     fig.tight_layout()
-    ax.legend()                            # ← MA: legend
 
     safe = neighborhood.replace(' ', '_')
     fig.savefig(os.path.join(GRAPH_OUT, f'{safe}.png'))
@@ -115,9 +117,6 @@ overall = (
 )
 
 if not overall.empty:
-    if not pd.api.types.is_datetime64_any_dtype(overall.index):
-        overall.index = pd.to_datetime(overall.index)
-
     min_dt = overall.index.min().to_pydatetime()
     fig, ax = plt.subplots(figsize=GRAPH_SIZE, dpi=GRAPH_DPI)
 
@@ -127,22 +126,23 @@ if not overall.empty:
         overall.values,
         marker='o',
         linestyle='-',
-        label='Daily average'            # ← MA: label added
+        label='Daily average'
     )
 
-    # ← MA: compute & plot overall 14-day MA
+    # overall 14-day MA
     overall_ma = overall.rolling(window=14, min_periods=1).mean()
     ax.plot(
         overall_ma.index.to_pydatetime(),
         overall_ma.values,
         linestyle='--',
         linewidth=1.5,
-        label='14-day MA'               # ← MA: label added
+        label='14-day MA'
     )
 
     ax.set_title('Average €/m² across all neighborhoods')
     ax.set_ylabel('€/m²')
     ax.set_xlim(min_dt, today_dt)
+
     locator = (
         mdates.AutoDateLocator()
         if len(overall) > 1
@@ -151,8 +151,8 @@ if not overall.empty:
     ax.xaxis.set_major_locator(locator)
     ax.xaxis.set_major_formatter(mdates.DateFormatter('%Y-%m-%d'))
     fig.autofmt_xdate()
+    ax.legend()
     fig.tight_layout()
-    ax.legend()                            # ← MA: legend
 
     fig.savefig(os.path.join(GRAPH_OUT, 'average.png'))
     plt.close(fig)
@@ -210,7 +210,6 @@ html = [
 # per-neighborhood cards
 for _, r in today_df.iterrows():
     nb, p = r['neighborhood'], r['avg_sale_price_per_m2']
-    # ← MA: compute today’s 14-day MA
     past = hist[
         (hist['neighborhood'] == nb) &
         (hist['date'] >= latest - pd.Timedelta(days=13))
@@ -222,7 +221,7 @@ for _, r in today_df.iterrows():
         '<div class="card">',
         f'  <h2>{nb}</h2>',
         f'  <p><strong>{p:.2f} €/m²</strong></p>',
-        f'  <p>14-day MA: <strong>{ma_today:.2f} €/m²</strong></p>',  # ← MA line
+        f'  <p>14-day MA: <strong>{ma_today:.2f} €/m²</strong></p>',
         f'  <img src="{GRAPH_URL}/{safe}.png" alt="{nb} chart">',
         '</div>'
     ]
@@ -230,17 +229,12 @@ for _, r in today_df.iterrows():
 # overall card
 if not overall.empty and latest in overall.index:
     avg = overall.loc[latest]
-    # ← MA: get overall MA for today
-    overall_ma_today = (
-        overall_ma.loc[latest]
-        if 'overall_ma' in locals()
-        else overall.rolling(window=14, min_periods=1).mean().loc[latest]
-    )
+    overall_ma_today = overall_ma.loc[latest]
     html += [
         '<div class="card">',
         '  <h2>Overall Average</h2>',
         f'  <p><strong>{avg:.2f} €/m²</strong></p>',
-        f'  <p>14-day MA: <strong>{overall_ma_today:.2f} €/m²</strong></p>',  # ← MA line
+        f'  <p>14-day MA: <strong>{overall_ma_today:.2f} €/m²</strong></p>',
         f'  <img src="{GRAPH_URL}/average.png" alt="overall chart">',
         '</div>'
     ]
