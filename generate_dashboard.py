@@ -38,7 +38,11 @@ hist = pd.read_csv(INPUT_CSV)
 coords = pd.read_csv(COORD_CSV)
 
 # ensure date dtype and drop duplicates
-hist['date'] = pd.to_datetime(hist['date'])
+hist['date'] = pd.to_datetime(
+    hist['date'], 
+    infer_datetime_format=True,
+    cache=False
+)
 hist = hist.drop_duplicates(['date', 'neighborhood'])
 
 # find latest date
