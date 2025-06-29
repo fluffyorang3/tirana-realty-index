@@ -1,20 +1,22 @@
-# .github/workflows/build-and-deploy-dashboard.yml
+# .github/workflows/daily-update.yml
 
-name: 🔄 Build & Deploy Dashboard
+name: 🔄 Daily Dashboard Update
 
 permissions:
-  contents: write # allow commits if needed
-  pages: write # allow Pages deployments
-  id-token: write # OIDC for configure-pages
+  contents: write # allow committing back to repo if needed
+  pages: write # allow deploying to GitHub Pages
+  id-token: write # for configure-pages OIDC
 
 on:
-  push:
-    branches: [main]
-  workflow_dispatch: {} # manual “Run workflow” button
+  # 1) every day at 03:30 UTC (05:30 EET)
+  schedule:
+    - cron: "30 3 * * *"
+  # 2) manual “Run workflow” button
+  workflow_dispatch: {}
 
 jobs:
   build_and_deploy:
-    name: Build & Deploy
+    name: Build & Deploy Dashboard
     runs-on: ubuntu-latest
 
     steps:
@@ -23,7 +25,7 @@ jobs:
         with:
           persist-credentials: true
 
-      - name: Set up Python
+      - name: Set up Python 3.x
         uses: actions/setup-python@v4
         with:
           python-version: "3.x"
