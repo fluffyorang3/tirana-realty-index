@@ -1,23 +1,23 @@
-name: "🔄 Daily Dashboard Update"
+# .github/workflows/build-and-deploy-dashboard.yml
 
-# These permissions let the workflow:
-#  - commit back to the repo (contents: write)
-#  - push to the Pages site (pages: write, id-token: write for OIDC)
+name: 🔄 Build & Deploy Dashboard
+
+# Grant this workflow permission to push content and deploy Pages
 permissions:
   contents: write
   pages: write
   id-token: write
 
 on:
-  # Run daily at 03:30 UTC (05:30 EET/EEST in Tirana)
-  schedule:
-    - cron: "30 3 * * *"
-  # Also allow manual trigger
+  # Automatically on every push to main
+  push:
+    branches: [main]
+  # Manual “Run workflow” button in Actions UI
   workflow_dispatch: {}
 
 jobs:
-  update-dashboard:
-    name: Update CSV & Generate Dashboard
+  build:
+    name: Build Dashboard
     runs-on: ubuntu-latest
 
     steps:
@@ -26,60 +26,43 @@ jobs:
         with:
           persist-credentials: true
 
-      - name: Configure Git for bot commits
-        run: |
-          git config user.name "dashboard-update-bot"
-          git config user.email "dashboard-update-bot@users.noreply.github.com"
-
-      - name: Set up Python 3.x
+      - name: Set up Python
         uses: actions/setup-python@v4
         with:
           python-version: "3.x"
 
-      - name: Install system & Python dependencies
+      - name: Install dependencies
         run: |
-          sudo apt-get update
-          sudo apt-get install -y chromium-browser chromium-chromedriver
-          pip install --upgrade pip
+          python -m pip install --upgrade pip
           pip install -r requirements.txt
-          pip install folium branca
 
-      - name: Scrape listings & append today’s indices
-        working-directory: ${{ github.workspace }}
-        run: |
-          python scraper.py
+      - name: Generate dashboard
+        run: python3 generate_dashboard.py
 
-      - name: Generate graphs & HTML dashboard
-        working-directory: ${{ github.workspace }}
-        run: |
-          python generate_dashboard.py
+      - name: Upload docs artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: docs
+          path: docs
 
-      - name: Commit & push updated CSV only
-        run: |
-          git add historical_indices.csv
-          if ! git diff --staged --quiet; then
-            git commit -m "chore: append today's indices (${{ github.event_name }} run)"
-            git push origin main
-          else
-            echo "No changes in historical_indices.csv — nothing to commit."
-          fi
-
-  deploy-pages:
-    name: Deploy docs/ to GitHub Pages
-    needs: update-dashboard
+  deploy:
+    name: Deploy to GitHub Pages
+    needs: build
     runs-on: ubuntu-latest
 
     steps:
-      - name: Checkout repository (for Pages deployment)
-        uses: actions/checkout@v3
+      - name: Download docs artifact
+        uses: actions/download-artifact@v4
         with:
-          persist-credentials: false
+          name: docs
 
       - name: Configure GitHub Pages
         uses: actions/configure-pages@v3
 
       - name: Upload Pages artifact
         uses: actions/upload-pages-artifact@v1
+        with:
+          path: docs
 
       - name: Deploy to GitHub Pages
         uses: actions/deploy-pages@v1
